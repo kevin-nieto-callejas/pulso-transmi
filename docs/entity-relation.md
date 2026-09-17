@@ -144,37 +144,29 @@ conserve (sección "Supabase — la memoria operacional"):
   `champion` a la vez (a reforzar más adelante con un índice parcial
   único si se automatiza la promoción).
 
-## Nota de seguridad pendiente
+## Seguridad: RLS
 
-Row Level Security (RLS) está **deshabilitado** en las 11 tablas del
-esquema (advertencia crítica del linter de Supabase). Mientras el
-proyecto es de uso interno del equipo (collector y notebooks locales
-usando la `anon key`), esto no expone datos a terceros porque el
-proyecto no es público. Pero **antes de conectar el dashboard de Vercel
-(bono) o de compartir la anon key**, hay que:
-
-1. Habilitar RLS en cada tabla.
-2. Agregar políticas explícitas: lectura pública solo para las tablas que
-   alimentarán el dashboard (`cycle_metrics`, `model_versions` con
-   columnas no sensibles), y ninguna escritura desde el rol `anon`.
-3. Mover la ingesta (collector, submissions) a la `service_role` key
-   dentro de GitHub Actions Secrets, nunca en el navegador — tal como
-   exige la guía metodológica.
-
-SQL de referencia para habilitar RLS (no aplicado todavía; requiere
-definir las políticas antes de correrlo o el acceso actual del equipo se
-bloquea):
+Row Level Security está **habilitado** en las 11 tablas (migración
+`enable_rls_public_read`). Política aplicada, igual en las 11 tablas:
 
 ```sql
-alter table stations enable row level security;
-alter table observations enable row level security;
-alter table context_readings enable row level security;
-alter table collector_runs enable row level security;
-alter table cycles enable row level security;
-alter table model_versions enable row level security;
-alter table predictions enable row level security;
-alter table submissions enable row level security;
-alter table prediction_evaluations enable row level security;
-alter table cycle_metrics enable row level security;
-alter table drift_signals enable row level security;
+alter table <tabla> enable row level security;
+create policy "public_read" on <tabla> for select using (true);
 ```
+
+Efecto:
+
+- **Lectura pública** con la anon/publishable key (`SUPABASE_KEY`) — no
+  hay PII en este esquema (es demanda sintética de transporte público),
+  así que exponer lectura no es un riesgo, y habilita el futuro
+  dashboard de Vercel sin exponer nada más.
+- **Escritura bloqueada para `anon`**: cualquier `INSERT`/`UPDATE`/`DELETE`
+  con la anon key falla con `42501` (row-level security policy
+  violation). Verificado con una prueba real contra `stations`.
+- Las escrituras (migración inicial, futuro collector) ahora requieren
+  la **service_role key** (`SUPABASE_SERVICE_ROLE_KEY` en `.env`, nunca
+  commiteada — `.env` está en `.gitignore`). `supabase/migrate_via_rest.py`
+  ya usa esa variable si está presente.
+
+`get_advisors` (linter de seguridad de Supabase) no reporta ninguna
+advertencia después de este cambio.

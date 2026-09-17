@@ -4,10 +4,12 @@ Usa upsert (Prefer: resolution=merge-duplicates) sobre las mismas llaves
 unicas del esquema, por lo que volver a correr este script es idempotente:
 no duplica filas si ya existen.
 
-Requiere las variables de entorno SUPABASE_URL y SUPABASE_KEY (la anon key
-alcanza mientras RLS este deshabilitado; en produccion esto deberia hacerse
-con la service_role key desde un entorno de servidor, nunca desde el
-navegador).
+RLS esta activo con politicas de solo lectura publica: este script necesita
+SUPABASE_SERVICE_ROLE_KEY (Supabase Dashboard > Settings > API) para poder
+escribir. La anon/publishable key (SUPABASE_KEY) ya no alcanza para insertar
+o actualizar filas. Nunca uses la service_role key en un entorno que llegue
+al navegador (Vercel, frontend); solo en scripts locales o GitHub Actions
+Secrets.
 """
 from __future__ import annotations
 
@@ -21,7 +23,7 @@ ROOT = Path(__file__).resolve().parent
 DATA = ROOT.parent / "data"
 
 SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
-SUPABASE_KEY = os.environ["SUPABASE_KEY"]
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ["SUPABASE_KEY"]
 
 HEADERS = {
     "apikey": SUPABASE_KEY,

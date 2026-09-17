@@ -1,7 +1,8 @@
 -- Esquema de Supabase para Pulso TransMi.
--- Aplicado via `apply_migration` (migracion "initial_schema"). Se conserva
--- aqui como documentacion versionada del esquema (ver docs/entity-relation.md
--- para el diagrama y la justificacion de cada tabla).
+-- Aplicado via `apply_migration` (migraciones "initial_schema" y
+-- "enable_rls_public_read"). Se conserva aqui como documentacion
+-- versionada del esquema (ver docs/entity-relation.md para el diagrama
+-- y la justificacion de cada tabla y politica).
 
 create table stations (
     station_id text primary key,
@@ -108,3 +109,29 @@ create table drift_signals (
     threshold_value double precision,
     action_taken text
 );
+
+-- Row Level Security: lectura publica (sin PII en este esquema), escritura
+-- restringida a la service_role key (ver docs/entity-relation.md).
+alter table stations enable row level security;
+alter table observations enable row level security;
+alter table context_readings enable row level security;
+alter table collector_runs enable row level security;
+alter table cycles enable row level security;
+alter table model_versions enable row level security;
+alter table predictions enable row level security;
+alter table submissions enable row level security;
+alter table prediction_evaluations enable row level security;
+alter table cycle_metrics enable row level security;
+alter table drift_signals enable row level security;
+
+create policy "public_read" on stations for select using (true);
+create policy "public_read" on observations for select using (true);
+create policy "public_read" on context_readings for select using (true);
+create policy "public_read" on collector_runs for select using (true);
+create policy "public_read" on cycles for select using (true);
+create policy "public_read" on model_versions for select using (true);
+create policy "public_read" on predictions for select using (true);
+create policy "public_read" on submissions for select using (true);
+create policy "public_read" on prediction_evaluations for select using (true);
+create policy "public_read" on cycle_metrics for select using (true);
+create policy "public_read" on drift_signals for select using (true);
