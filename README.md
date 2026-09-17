@@ -34,17 +34,28 @@ media Fase 2 ("Construir la memoria"):
 
 ## Modelo
 
-`src/train.py` entrena y compara 6 candidatos con la misma validación
+`src/train.py` entrena y compara 8 candidatos con la misma validación
 cruzada temporal (5 folds, `TimeSeriesSplit`, nunca aleatoria):
 
 | Candidato | Features | Accuracy (CV) |
 |---|---:|---:|
-| **`xgboost_full`** (champion vigente) | 15 | **86.61** |
+| **`xgboost_station`** (champion vigente) | 27 (15 + one-hot de estación) | **86.77** |
+| `xgboost_full` (champion anterior → `historical`) | 15 | 86.61 |
+| `xgboost_tuned2` (más árboles, learning rate más bajo) | 15 | 86.59 |
 | `extra_trees_full` | 15 | 86.56 |
 | `rf_tuned` (RF, 500 árboles, más profundo) | 15 | 86.48 |
-| `rf_full` (champion anterior → `historical`) | 15 | 86.34 |
+| `rf_full` (primer champion → `historical`) | 15 | 86.34 |
 | `gbr_full` | 15 | 86.16 |
 | `rf_no_weekly_lag` (prueba de fragilidad) | 12 (sin `lag_672`/`roll_mean_96`/`roll_std_96`) | 85.48 |
+
+**Hallazgo de esta ronda de refinamiento:** afinar hiperparámetros de
+XGBoost (`xgboost_tuned2`: más árboles, learning rate más bajo) casi no
+movió la aguja (86.59 vs 86.61, incluso un poco peor). Lo que sí ayudó
+fue agregar una **señal nueva**: la identidad de la estación (one-hot).
+El EDA ya había mostrado que la demanda promedio varía más de 3x entre
+estaciones, pero ningún candidato anterior le decía eso al modelo
+explícitamente — solo lo inferían indirectamente vía los lags. Lección:
+más cómputo/arboles no sustituye una feature que de verdad falta.
 
 `rf_no_weekly_lag` existe a propósito para medir la fragilidad del
 modelo: ¿qué tan mal quedaríamos si `lag_672` (demanda de hace una
@@ -62,9 +73,11 @@ consulta el champion vigente en Supabase antes de decidir. Un candidato
 nuevo solo se promueve si supera esa métrica; si no, se registra igual
 como `candidate` (evidencia del experimento) sin tocar el champion. Un
 índice único parcial en Postgres (`one_champion_only`) impide a nivel
-de base de datos que existan dos champions a la vez. Así fue como
-`xgboost_full` reemplazó a `rf_full` (86.61 > 86.34) y este quedó
-marcado como `historical`, no borrado — se conserva como evidencia.
+de base de datos que existan dos champions a la vez. Ya pasó dos veces
+en la práctica: `xgboost_full` reemplazó a `rf_full` (86.61 > 86.34), y
+luego `xgboost_station` reemplazó a `xgboost_full` (86.77 > 86.61).
+Ambos anteriores quedaron marcados `historical`, no borrados — se
+conservan como evidencia de cada experimento.
 
 El modelo ganador se guarda en `artifacts/` (ignorado por git) y se
 sube a Supabase Storage (`model-artifacts` bucket) para que sea

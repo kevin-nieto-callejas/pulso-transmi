@@ -12,6 +12,12 @@ Corre varios candidatos con la misma validacion cruzada temporal
   4. extra_trees_full  - Extra Trees (ensemble mas aleatorizado que RF).
   5. rf_tuned          - Random Forest mas grande (mas arboles, mas profundo).
   6. xgboost_full      - XGBoost, gradient boosting optimizado.
+  7. xgboost_station   - XGBoost + identidad de estacion (one-hot). El EDA
+                         mostro >3x de diferencia en demanda promedio entre
+                         estaciones, pero ningun candidato anterior le decia
+                         al modelo explicitamente "en que estacion estas".
+  8. xgboost_tuned2    - XGBoost con mas arboles/menor learning rate, para
+                         ver si converge a un optimo mejor que xgboost_full.
 
 Regla de promocion (guia metodologica, seccion "El modelo promovido"):
 una version nueva reemplaza al champion SOLO si lo supera en la misma
@@ -42,38 +48,63 @@ ARTIFACTS = ROOT / "artifacts"
 ARTIFACTS.mkdir(exist_ok=True)
 
 sys.path.insert(0, str(ROOT / "src"))
-from features import ALL_FEATURE_COLUMNS, NO_WEEKLY_LAG_FEATURE_COLUMNS, build_feature_frame, wape_accuracy  # noqa: E402
+from features import (  # noqa: E402
+    ALL_FEATURE_COLUMNS,
+    NO_WEEKLY_LAG_FEATURE_COLUMNS,
+    build_feature_frame,
+    station_dummy_columns,
+    wape_accuracy,
+)
 
-CANDIDATES = {
-    "rf_full": (
-        RandomForestRegressor, ALL_FEATURE_COLUMNS,
-        dict(n_estimators=200, max_depth=10, random_state=20260916, n_jobs=-1),
-    ),
-    "rf_no_weekly_lag": (
-        RandomForestRegressor, NO_WEEKLY_LAG_FEATURE_COLUMNS,
-        dict(n_estimators=200, max_depth=10, random_state=20260916, n_jobs=-1),
-    ),
-    "gbr_full": (
-        GradientBoostingRegressor, ALL_FEATURE_COLUMNS,
-        dict(n_estimators=200, max_depth=3, learning_rate=0.05, random_state=20260916),
-    ),
-    "extra_trees_full": (
-        ExtraTreesRegressor, ALL_FEATURE_COLUMNS,
-        dict(n_estimators=300, max_depth=14, random_state=20260916, n_jobs=-1),
-    ),
-    "rf_tuned": (
-        RandomForestRegressor, ALL_FEATURE_COLUMNS,
-        dict(n_estimators=500, max_depth=16, min_samples_leaf=2, random_state=20260916, n_jobs=-1),
-    ),
-    "xgboost_full": (
-        XGBRegressor, ALL_FEATURE_COLUMNS,
-        dict(
-            n_estimators=400, max_depth=6, learning_rate=0.05,
-            subsample=0.8, colsample_bytree=0.8, random_state=20260916,
-            n_jobs=-1, tree_method="hist",
+
+def build_candidates(observations: pd.DataFrame) -> dict:
+    with_station = ALL_FEATURE_COLUMNS + station_dummy_columns(observations)
+    return {
+        "rf_full": (
+            RandomForestRegressor, ALL_FEATURE_COLUMNS,
+            dict(n_estimators=200, max_depth=10, random_state=20260916, n_jobs=-1),
         ),
-    ),
-}
+        "rf_no_weekly_lag": (
+            RandomForestRegressor, NO_WEEKLY_LAG_FEATURE_COLUMNS,
+            dict(n_estimators=200, max_depth=10, random_state=20260916, n_jobs=-1),
+        ),
+        "gbr_full": (
+            GradientBoostingRegressor, ALL_FEATURE_COLUMNS,
+            dict(n_estimators=200, max_depth=3, learning_rate=0.05, random_state=20260916),
+        ),
+        "extra_trees_full": (
+            ExtraTreesRegressor, ALL_FEATURE_COLUMNS,
+            dict(n_estimators=300, max_depth=14, random_state=20260916, n_jobs=-1),
+        ),
+        "rf_tuned": (
+            RandomForestRegressor, ALL_FEATURE_COLUMNS,
+            dict(n_estimators=500, max_depth=16, min_samples_leaf=2, random_state=20260916, n_jobs=-1),
+        ),
+        "xgboost_full": (
+            XGBRegressor, ALL_FEATURE_COLUMNS,
+            dict(
+                n_estimators=400, max_depth=6, learning_rate=0.05,
+                subsample=0.8, colsample_bytree=0.8, random_state=20260916,
+                n_jobs=-1, tree_method="hist",
+            ),
+        ),
+        "xgboost_station": (
+            XGBRegressor, with_station,
+            dict(
+                n_estimators=400, max_depth=6, learning_rate=0.05,
+                subsample=0.8, colsample_bytree=0.8, random_state=20260916,
+                n_jobs=-1, tree_method="hist",
+            ),
+        ),
+        "xgboost_tuned2": (
+            XGBRegressor, ALL_FEATURE_COLUMNS,
+            dict(
+                n_estimators=800, max_depth=5, learning_rate=0.02,
+                subsample=0.7, colsample_bytree=0.7, min_child_weight=3,
+                random_state=20260916, n_jobs=-1, tree_method="hist",
+            ),
+        ),
+    }
 
 
 def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -204,10 +235,11 @@ def register_model_version(version_id, data_cutoff, features, validation_metric,
 def main() -> None:
     observations, context = load_data()
     feature_frame = build_feature_frame(observations, context)
+    candidates = build_candidates(observations)
 
     print("=== Comparacion de candidatos (validacion cruzada temporal, 5 folds) ===")
     results = {}
-    for name, (model_cls, feature_columns, params) in CANDIDATES.items():
+    for name, (model_cls, feature_columns, params) in candidates.items():
         accuracy = evaluate_candidate(model_cls, feature_columns, params, feature_frame)
         results[name] = accuracy
         print(f"{name:20s} accuracy_mean={accuracy:.2f}  (n_features={len(feature_columns)})")
@@ -225,7 +257,7 @@ def main() -> None:
 
     promote = current_champion is None or winner_accuracy > current_champion["validation_metric"]
 
-    model_cls, feature_columns, params = CANDIDATES[winner_name]
+    model_cls, feature_columns, params = candidates[winner_name]
     model_frame = feature_frame.dropna(subset=feature_columns + ["demand"])
     final_model = model_cls(**params)
     final_model.fit(model_frame[feature_columns], model_frame["demand"])

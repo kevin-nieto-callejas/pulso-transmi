@@ -43,7 +43,20 @@ def build_feature_frame(observations: pd.DataFrame, context: pd.DataFrame) -> pd
     frame["roll_std_96"] = grouped.shift(1).rolling(96).std()
 
     frame = frame.merge(context, on="observed_at", how="left")
+
+    # Identidad de la estacion como one-hot: el EDA mostro >3x de diferencia
+    # en demanda promedio entre estaciones (mapa geografico), pero ninguna
+    # feature anterior le decia al modelo "en que estacion estas parado" -
+    # solo lo inferia indirectamente via los lags. Se agrega sin reemplazar
+    # station_id (se sigue necesitando para agrupar por estacion).
+    dummies = pd.get_dummies(frame["station_id"], prefix="station", dtype=int)
+    frame = pd.concat([frame, dummies], axis=1)
+
     return frame
+
+
+def station_dummy_columns(observations: pd.DataFrame) -> list[str]:
+    return [f"station_{sid}" for sid in sorted(observations["station_id"].unique())]
 
 
 def wape_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:

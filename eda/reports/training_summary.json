@@ -1,20 +1,22 @@
 {
   "candidates": {
-    "rf_full": 86.3447603508547,
-    "rf_no_weekly_lag": 85.48,
-    "gbr_full": 86.16,
-    "extra_trees_full": 86.56,
-    "rf_tuned": 86.48,
-    "xgboost_full": 86.6091342109927
+    "rf_full": 86.34476035085467,
+    "rf_no_weekly_lag": 85.4785726980248,
+    "gbr_full": 86.16136658757837,
+    "extra_trees_full": 86.56052877580453,
+    "rf_tuned": 86.48212778748288,
+    "xgboost_full": 86.60913421099272,
+    "xgboost_station": 86.76764243345619,
+    "xgboost_tuned2": 86.59124902089897
   },
-  "fragility_gap": 0.87,
-  "winner_this_run": "xgboost_full",
-  "version_id": "xgboost_full-20260917T035525Z",
+  "fragility_gap": 0.8661876528298649,
+  "winner_this_run": "xgboost_station",
+  "version_id": "xgboost_station-20260917T042928Z",
   "promoted": true,
   "previous_champion": {
-    "version_id": "rf_full-20260917T033029Z",
-    "validation_metric": 86.3447603508547
+    "version_id": "xgboost_full-20260917T035525Z",
+    "validation_metric": 86.6091342109927
   },
   "data_cutoff": "2026-09-08T23:45:00-05:00",
-  "artifact_location": "supabase-storage://model-artifacts/xgboost_full-20260917T035525Z.joblib"
+  "artifact_location": "supabase-storage://model-artifacts/xgboost_station-20260917T042928Z.joblib"
 }
