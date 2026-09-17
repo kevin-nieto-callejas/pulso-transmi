@@ -158,16 +158,19 @@ def upload_to_storage(local_path: Path, remote_path: str) -> str:
     key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
     bucket = "model-artifacts"
 
+    headers = {"apikey": key, "Authorization": f"Bearer {key}"}
     with httpx.Client(timeout=60.0) as client:
-        client.post(
-            f"{url}/storage/v1/bucket",
-            headers={"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-            json={"id": bucket, "name": bucket, "public": False},
-        )
+        exists = client.get(f"{url}/storage/v1/bucket/{bucket}", headers=headers)
+        if exists.status_code == 404:
+            client.post(
+                f"{url}/storage/v1/bucket",
+                headers={**headers, "Content-Type": "application/json"},
+                json={"id": bucket, "name": bucket, "public": False},
+            )
         with open(local_path, "rb") as f:
             response = client.post(
                 f"{url}/storage/v1/object/{bucket}/{remote_path}",
-                headers={"apikey": key, "Authorization": f"Bearer {key}"},
+                headers=headers,
                 params={"upsert": "true"},
                 content=f.read(),
             )
