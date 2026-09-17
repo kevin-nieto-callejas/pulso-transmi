@@ -1,22 +1,24 @@
-"""Entrena, compara y promueve el primer modelo champion de Pulso TransMi.
+"""Entrena, compara y promueve el modelo champion de Pulso TransMi.
 
-Corre 3 candidatos con la misma validacion cruzada temporal (TimeSeriesSplit,
-nunca aleatoria) para poder comparar de forma justa:
+Corre varios candidatos con la misma validacion cruzada temporal
+(TimeSeriesSplit, nunca aleatoria) para poder comparar de forma justa:
 
-  1. rf_full          - Random Forest con todas las features (incluye lag_672,
-                         la senal de estacionalidad semanal que domina el EDA).
+  1. rf_full          - Random Forest con todas las features.
   2. rf_no_weekly_lag - Random Forest SIN lag_672/roll_mean_96/roll_std_96,
                          para medir que tan fragil es el modelo si esa senal
-                         deja de ser confiable (esto es exactamente el riesgo
-                         de drift que discutimos: un modelo que solo copia
-                         "la semana pasada" se rompe cuando el patron cambia).
-  3. gbr_full          - Gradient Boosting con todas las features, para
-                         comparar contra una familia de algoritmo distinta.
+                         de estacionalidad semanal deja de ser confiable
+                         (el riesgo de drift que motiva todo el reto).
+  3. gbr_full          - Gradient Boosting (sklearn) con todas las features.
+  4. extra_trees_full  - Extra Trees (ensemble mas aleatorizado que RF).
+  5. rf_tuned          - Random Forest mas grande (mas arboles, mas profundo).
+  6. xgboost_full      - XGBoost, gradient boosting optimizado.
 
-El ganador se promueve como candidato "champion" en Supabase (tabla
-model_versions) solo si es el primero (no hay champion previo que superar
-todavia). El artefacto se guarda local en artifacts/ y se sube a Supabase
-Storage para que sea reproducible desde cualquier maquina, no solo la local.
+Regla de promocion (guia metodologica, seccion "El modelo promovido"):
+una version nueva reemplaza al champion SOLO si lo supera en la misma
+validacion. La novedad por si sola no es mejora. Si no lo supera, se
+registra igual como "candidate" (evidencia del experimento) sin tocar
+el champion vigente. La base de datos tiene un indice unico parcial
+(one_champion_only) que impide tener dos champions a la vez.
 """
 from __future__ import annotations
 
@@ -30,8 +32,9 @@ from pathlib import Path
 import httpx
 import joblib
 import pandas as pd
-from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
+from sklearn.ensemble import ExtraTreesRegressor, GradientBoostingRegressor, RandomForestRegressor
 from sklearn.model_selection import TimeSeriesSplit
+from xgboost import XGBRegressor
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
@@ -42,9 +45,34 @@ sys.path.insert(0, str(ROOT / "src"))
 from features import ALL_FEATURE_COLUMNS, NO_WEEKLY_LAG_FEATURE_COLUMNS, build_feature_frame, wape_accuracy  # noqa: E402
 
 CANDIDATES = {
-    "rf_full": (RandomForestRegressor, ALL_FEATURE_COLUMNS, dict(n_estimators=200, max_depth=10, random_state=20260916, n_jobs=-1)),
-    "rf_no_weekly_lag": (RandomForestRegressor, NO_WEEKLY_LAG_FEATURE_COLUMNS, dict(n_estimators=200, max_depth=10, random_state=20260916, n_jobs=-1)),
-    "gbr_full": (GradientBoostingRegressor, ALL_FEATURE_COLUMNS, dict(n_estimators=200, max_depth=3, learning_rate=0.05, random_state=20260916)),
+    "rf_full": (
+        RandomForestRegressor, ALL_FEATURE_COLUMNS,
+        dict(n_estimators=200, max_depth=10, random_state=20260916, n_jobs=-1),
+    ),
+    "rf_no_weekly_lag": (
+        RandomForestRegressor, NO_WEEKLY_LAG_FEATURE_COLUMNS,
+        dict(n_estimators=200, max_depth=10, random_state=20260916, n_jobs=-1),
+    ),
+    "gbr_full": (
+        GradientBoostingRegressor, ALL_FEATURE_COLUMNS,
+        dict(n_estimators=200, max_depth=3, learning_rate=0.05, random_state=20260916),
+    ),
+    "extra_trees_full": (
+        ExtraTreesRegressor, ALL_FEATURE_COLUMNS,
+        dict(n_estimators=300, max_depth=14, random_state=20260916, n_jobs=-1),
+    ),
+    "rf_tuned": (
+        RandomForestRegressor, ALL_FEATURE_COLUMNS,
+        dict(n_estimators=500, max_depth=16, min_samples_leaf=2, random_state=20260916, n_jobs=-1),
+    ),
+    "xgboost_full": (
+        XGBRegressor, ALL_FEATURE_COLUMNS,
+        dict(
+            n_estimators=400, max_depth=6, learning_rate=0.05,
+            subsample=0.8, colsample_bytree=0.8, random_state=20260916,
+            n_jobs=-1, tree_method="hist",
+        ),
+    ),
 }
 
 
@@ -94,6 +122,37 @@ def get_git_commit() -> str:
         return "unknown"
 
 
+def supabase_headers() -> dict:
+    key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    return {"apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+
+
+def get_current_champion() -> dict | None:
+    url = os.environ["SUPABASE_URL"].rstrip("/")
+    with httpx.Client(timeout=30.0) as client:
+        response = client.get(
+            f"{url}/rest/v1/model_versions",
+            headers=supabase_headers(),
+            params={"status": "eq.champion", "select": "version_id,validation_metric"},
+        )
+        response.raise_for_status()
+        rows = response.json()
+    return rows[0] if rows else None
+
+
+def demote_to_historical(version_id: str) -> None:
+    url = os.environ["SUPABASE_URL"].rstrip("/")
+    with httpx.Client(timeout=30.0) as client:
+        response = client.patch(
+            f"{url}/rest/v1/model_versions",
+            headers={**supabase_headers(), "Prefer": "return=minimal"},
+            params={"version_id": f"eq.{version_id}"},
+            json={"status": "historical"},
+        )
+        if response.status_code >= 300:
+            raise RuntimeError(f"No se pudo degradar el champion anterior: {response.status_code} {response.text[:300]}")
+
+
 def upload_to_storage(local_path: Path, remote_path: str) -> str:
     url = os.environ["SUPABASE_URL"].rstrip("/")
     key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -120,11 +179,6 @@ def upload_to_storage(local_path: Path, remote_path: str) -> str:
 
 def register_model_version(version_id, data_cutoff, features, validation_metric, artifact_location, status) -> None:
     url = os.environ["SUPABASE_URL"].rstrip("/")
-    key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-    headers = {
-        "apikey": key, "Authorization": f"Bearer {key}", "Content-Type": "application/json",
-        "Prefer": "resolution=merge-duplicates,return=minimal",
-    }
     payload = {
         "version_id": version_id,
         "data_cutoff": data_cutoff,
@@ -137,7 +191,8 @@ def register_model_version(version_id, data_cutoff, features, validation_metric,
     with httpx.Client(timeout=30.0) as client:
         response = client.post(
             f"{url}/rest/v1/model_versions",
-            headers=headers, params={"on_conflict": "version_id"}, json=payload,
+            headers={**supabase_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"},
+            params={"on_conflict": "version_id"}, json=payload,
         )
         if response.status_code >= 300:
             raise RuntimeError(f"No se pudo registrar el modelo: {response.status_code} {response.text[:300]}")
@@ -156,10 +211,16 @@ def main() -> None:
 
     fragility_gap = results["rf_full"] - results["rf_no_weekly_lag"]
     print(f"\nBrecha de fragilidad (rf_full - rf_no_weekly_lag): {fragility_gap:.2f} puntos")
-    print("Esa brecha es cuanto se perderia si lag_672 dejara de ser confiable por drift.\n")
 
     winner_name = max(results, key=results.get)
-    print(f"Ganador: {winner_name} (accuracy_mean={results[winner_name]:.2f})")
+    winner_accuracy = results[winner_name]
+    print(f"\nMejor candidato de esta corrida: {winner_name} (accuracy_mean={winner_accuracy:.2f})")
+
+    current_champion = get_current_champion()
+    if current_champion is not None:
+        print(f"Champion vigente: {current_champion['version_id']} (accuracy={current_champion['validation_metric']:.2f})")
+
+    promote = current_champion is None or winner_accuracy > current_champion["validation_metric"]
 
     model_cls, feature_columns, params = CANDIDATES[winner_name]
     model_frame = feature_frame.dropna(subset=feature_columns + ["demand"])
@@ -177,26 +238,41 @@ def main() -> None:
     artifact_location = upload_to_storage(local_path, artifact_name)
     print(f"Artefacto subido a Supabase Storage: {artifact_location}")
 
+    if promote:
+        if current_champion is not None:
+            demote_to_historical(current_champion["version_id"])
+            print(f"Champion anterior degradado a 'historical': {current_champion['version_id']}")
+        status = "champion"
+        print(f"PROMOVIDO a champion: {version_id} (superó al anterior)" if current_champion else f"PROMOVIDO a champion (primer modelo): {version_id}")
+    else:
+        status = "candidate"
+        print(
+            f"NO promovido: {winner_accuracy:.2f} no supera al champion vigente "
+            f"({current_champion['validation_metric']:.2f}). Se registra como 'candidate'."
+        )
+
     register_model_version(
         version_id=version_id,
         data_cutoff=data_cutoff,
         features=feature_columns,
-        validation_metric=results[winner_name],
+        validation_metric=winner_accuracy,
         artifact_location=artifact_location,
-        status="champion",
+        status=status,
     )
-    print(f"Registrado en model_versions como CHAMPION: {version_id}")
+    print(f"Registrado en model_versions como {status.upper()}: {version_id}")
 
     summary = {
         "candidates": results,
         "fragility_gap": fragility_gap,
-        "winner": winner_name,
+        "winner_this_run": winner_name,
         "version_id": version_id,
+        "promoted": bool(promote),
+        "previous_champion": current_champion,
         "data_cutoff": data_cutoff,
         "artifact_location": artifact_location,
     }
     (ROOT / "eda" / "reports" / "training_summary.json").write_text(
-        json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
+        json.dumps(summary, indent=2, ensure_ascii=False, default=float), encoding="utf-8"
     )
 
 

@@ -34,14 +34,17 @@ media Fase 2 ("Construir la memoria"):
 
 ## Modelo
 
-`src/train.py` entrena y compara 3 candidatos con la misma validación
+`src/train.py` entrena y compara 6 candidatos con la misma validación
 cruzada temporal (5 folds, `TimeSeriesSplit`, nunca aleatoria):
 
 | Candidato | Features | Accuracy (CV) |
 |---|---:|---:|
-| **`rf_full`** (ganador, champion) | 15 (incluye `lag_672`) | **86.34** |
+| **`xgboost_full`** (champion vigente) | 15 | **86.61** |
+| `extra_trees_full` | 15 | 86.56 |
+| `rf_tuned` (RF, 500 árboles, más profundo) | 15 | 86.48 |
+| `rf_full` (champion anterior → `historical`) | 15 | 86.34 |
 | `gbr_full` | 15 | 86.16 |
-| `rf_no_weekly_lag` | 12 (sin `lag_672`/`roll_mean_96`/`roll_std_96`) | 85.48 |
+| `rf_no_weekly_lag` (prueba de fragilidad) | 12 (sin `lag_672`/`roll_mean_96`/`roll_std_96`) | 85.48 |
 
 `rf_no_weekly_lag` existe a propósito para medir la fragilidad del
 modelo: ¿qué tan mal quedaríamos si `lag_672` (demanda de hace una
@@ -53,6 +56,15 @@ como parecía; las demás features (lags cortos, hora, contexto) cubren
 razonablemente si esa señal falla. Aun así, no hay garantía de que esto
 se sostenga ante un drift real de la competencia — solo mide robustez
 ante la *ausencia* de esa feature, no ante un cambio en su significado.
+
+**Regla de promoción real, no solo "el número más alto":** `train.py`
+consulta el champion vigente en Supabase antes de decidir. Un candidato
+nuevo solo se promueve si supera esa métrica; si no, se registra igual
+como `candidate` (evidencia del experimento) sin tocar el champion. Un
+índice único parcial en Postgres (`one_champion_only`) impide a nivel
+de base de datos que existan dos champions a la vez. Así fue como
+`xgboost_full` reemplazó a `rf_full` (86.61 > 86.34) y este quedó
+marcado como `historical`, no borrado — se conserva como evidencia.
 
 El modelo ganador se guarda en `artifacts/` (ignorado por git) y se
 sube a Supabase Storage (`model-artifacts` bucket) para que sea
