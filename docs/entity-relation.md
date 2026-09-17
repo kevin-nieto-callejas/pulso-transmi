@@ -83,7 +83,7 @@ erDiagram
         jsonb receipt
     }
     PREDICTION_EVALUATIONS {
-        bigint prediction_id PK_FK
+        bigint prediction_id PK
         float actual_value
         float absolute_error
     }
