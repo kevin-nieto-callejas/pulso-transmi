@@ -1,0 +1,12 @@
+{
+  "candidates": {
+    "rf_full": 86.34476035085467,
+    "rf_no_weekly_lag": 85.4785726980248,
+    "gbr_full": 86.16136658757837
+  },
+  "fragility_gap": 0.8661876528298649,
+  "winner": "rf_full",
+  "version_id": "rf_full-20260917T033029Z",
+  "data_cutoff": "2026-09-08T23:45:00-05:00",
+  "artifact_location": "supabase-storage://model-artifacts/rf_full-20260917T033029Z.joblib"
+}

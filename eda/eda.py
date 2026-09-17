@@ -7,6 +7,7 @@ y escribe resultados solo dentro de esta carpeta (eda/figures, eda/reports).
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -23,6 +24,9 @@ from sklearn.model_selection import TimeSeriesSplit
 ROOT = Path(__file__).resolve().parent
 DATA = ROOT.parent / "data"
 FIGURES = ROOT / "figures"
+
+sys.path.insert(0, str(ROOT.parent / "src"))
+from features import ALL_FEATURE_COLUMNS, build_feature_frame, wape_accuracy  # noqa: E402
 REPORTS = ROOT / "reports"
 FIGURES.mkdir(parents=True, exist_ok=True)
 REPORTS.mkdir(parents=True, exist_ok=True)
@@ -160,35 +164,6 @@ def plot_temporal_overview(observations: pd.DataFrame, stations: pd.DataFrame) -
     plt.close(fig)
 
 
-# ---------------------------------------------------------------------------
-# Feature engineering
-# ---------------------------------------------------------------------------
-
-def build_feature_frame(observations: pd.DataFrame, context: pd.DataFrame) -> pd.DataFrame:
-    frame = observations.sort_values(["station_id", "observed_at"]).copy()
-
-    frame["hour"] = frame["observed_at"].dt.hour
-    frame["minute"] = frame["observed_at"].dt.minute
-    frame["day_of_week"] = frame["observed_at"].dt.dayofweek
-    frame["is_weekend"] = frame["day_of_week"].isin([5, 6]).astype(int)
-    frame["hour_sin"] = np.sin(2 * np.pi * (frame["hour"] * 4 + frame["minute"] / 15) / 96)
-    frame["hour_cos"] = np.cos(2 * np.pi * (frame["hour"] * 4 + frame["minute"] / 15) / 96)
-    frame["dow_sin"] = np.sin(2 * np.pi * frame["day_of_week"] / 7)
-    frame["dow_cos"] = np.cos(2 * np.pi * frame["day_of_week"] / 7)
-
-    grouped = frame.groupby("station_id")["demand"]
-    frame["lag_1"] = grouped.shift(1)
-    frame["lag_4"] = grouped.shift(4)
-    frame["lag_96"] = grouped.shift(96)
-    frame["lag_672"] = grouped.shift(672)
-    frame["roll_mean_4"] = grouped.shift(1).rolling(4).mean()
-    frame["roll_mean_96"] = grouped.shift(1).rolling(96).mean()
-    frame["roll_std_96"] = grouped.shift(1).rolling(96).std()
-
-    frame = frame.merge(context, on="observed_at", how="left")
-    return frame
-
-
 def correlation_analysis(feature_frame: pd.DataFrame) -> pd.DataFrame:
     numeric_cols = [
         "demand", "hour_sin", "hour_cos", "dow_sin", "dow_cos", "is_weekend",
@@ -217,23 +192,16 @@ def correlation_analysis(feature_frame: pd.DataFrame) -> pd.DataFrame:
 # Seleccion de features + validacion cruzada temporal
 # ---------------------------------------------------------------------------
 
-FEATURE_COLUMNS = [
-    "hour_sin", "hour_cos", "dow_sin", "dow_cos", "is_weekend",
-    "lag_1", "lag_4", "lag_96", "lag_672", "roll_mean_4", "roll_mean_96",
-    "roll_std_96", "rain_mm", "temperature_c", "event_intensity",
-]
-
-
 def feature_selection(feature_frame: pd.DataFrame) -> pd.Series:
-    model_frame = feature_frame.dropna(subset=FEATURE_COLUMNS + ["demand"]).copy()
-    X = model_frame[FEATURE_COLUMNS]
+    model_frame = feature_frame.dropna(subset=ALL_FEATURE_COLUMNS + ["demand"]).copy()
+    X = model_frame[ALL_FEATURE_COLUMNS]
     y = model_frame["demand"]
 
     model = RandomForestRegressor(
         n_estimators=200, max_depth=10, random_state=20260916, n_jobs=-1
     )
     model.fit(X, y)
-    importances = pd.Series(model.feature_importances_, index=FEATURE_COLUMNS)
+    importances = pd.Series(model.feature_importances_, index=ALL_FEATURE_COLUMNS)
     importances = importances.sort_values(ascending=False)
 
     fig, ax = plt.subplots(figsize=(8, 6))
@@ -245,11 +213,6 @@ def feature_selection(feature_frame: pd.DataFrame) -> pd.Series:
     plt.close(fig)
 
     return importances
-
-
-def wape_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    wape = np.abs(y_true - y_pred).sum() / np.abs(y_true).sum()
-    return 100 * max(0.0, 1 - wape)
 
 
 def temporal_cross_validation(feature_frame: pd.DataFrame, top_features: list[str]) -> pd.DataFrame:

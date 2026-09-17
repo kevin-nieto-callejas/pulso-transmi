@@ -12,7 +12,8 @@ análisis, esquema de datos, migración— es trabajo propio del equipo.
 
 ## Estado actual
 
-Fase 1 de la guía metodológica ("Comprender" + "Construir la memoria"):
+Fases 1 y 3 de la guía metodológica ("Comprender" y "Experimentar"), con
+media Fase 2 ("Construir la memoria"):
 
 - ✅ SDK instalado, histórico descargado (12 estaciones, 45 días, 51.840
   observaciones).
@@ -22,12 +23,43 @@ Fase 1 de la guía metodológica ("Comprender" + "Construir la memoria"):
 - ✅ Base de datos en Supabase con el histórico migrado — ver
   [`docs/entity-relation.md`](docs/entity-relation.md) para el esquema,
   el diagrama entidad-relación y las políticas de seguridad (RLS).
+- ✅ Modelo champion entrenado, comparado contra 2 alternativas y
+  registrado en `model_versions` (artefacto en Supabase Storage) — ver
+  [`src/train.py`](src/train.py) y la sección "Modelo" abajo.
 - ⬜ Collector incremental automatizado (próxima fase, cuando se active
   el stream en vivo).
-- ⬜ Modelo champion registrado y promovido.
 - ⬜ Inferencia periódica vía GitHub Actions y submissions.
 - ⬜ Monitoreo de drift y reentrenamiento.
 - ⬜ Dashboard (bono).
+
+## Modelo
+
+`src/train.py` entrena y compara 3 candidatos con la misma validación
+cruzada temporal (5 folds, `TimeSeriesSplit`, nunca aleatoria):
+
+| Candidato | Features | Accuracy (CV) |
+|---|---:|---:|
+| **`rf_full`** (ganador, champion) | 15 (incluye `lag_672`) | **86.34** |
+| `gbr_full` | 15 | 86.16 |
+| `rf_no_weekly_lag` | 12 (sin `lag_672`/`roll_mean_96`/`roll_std_96`) | 85.48 |
+
+`rf_no_weekly_lag` existe a propósito para medir la fragilidad del
+modelo: ¿qué tan mal quedaríamos si `lag_672` (demanda de hace una
+semana) dejara de ser confiable por drift? La brecha real es de solo
+**0.87 puntos** — mucho menor de lo que la altísima importancia de esa
+feature en el EDA (91.8%) hacía temer. Esto corrige una preocupación
+que teníamos: el modelo no depende tan ciegamente de una sola señal
+como parecía; las demás features (lags cortos, hora, contexto) cubren
+razonablemente si esa señal falla. Aun así, no hay garantía de que esto
+se sostenga ante un drift real de la competencia — solo mide robustez
+ante la *ausencia* de esa feature, no ante un cambio en su significado.
+
+El modelo ganador se guarda en `artifacts/` (ignorado por git) y se
+sube a Supabase Storage (`model-artifacts` bucket) para que sea
+reproducible desde cualquier máquina, no solo la que lo entrenó.
+`src/predict.py` demuestra que el artefacto se puede volver a cargar
+desde Storage y producir predicciones (smoke test, no conectado a un
+ciclo real todavía).
 
 ## Arquitectura
 
@@ -56,10 +88,11 @@ API Pulso TransMi  →  collector  →  Supabase (Postgres)  →  experimentos /
 - **`lag_672` (demanda de hace exactamente 1 semana) es la feature más
   fuerte** (91.8% de importancia en el Random Forest de selección de
   features) — hay estacionalidad semanal muy marcada en el histórico.
-  Esto es una señal útil hoy, pero también una alerta: un modelo que
-  solo copia el patrón de la semana pasada es frágil ante el drift que
-  el reto va a introducir cuando el stream esté activo. No se debe
-  confundir el 86.21% de accuracy en el histórico estático con un
+  Esto encendió una alarma inicial sobre fragilidad ante drift, pero al
+  entrenar sin esa feature (ver sección "Modelo") la caída real es de
+  solo 0.87 puntos — menor de lo temido, aunque sigue sin ser una
+  garantía de que el modelo aguante un drift real en la competencia. No
+  se debe confundir el accuracy en el histórico estático con un
   problema resuelto.
 - **RLS con lectura pública**: el esquema no contiene PII (es demanda
   sintética de transporte público), así que se optó por lectura abierta
@@ -96,14 +129,31 @@ Migrar (o re-migrar; es idempotente) el histórico a Supabase requiere la
 python supabase/migrate_via_rest.py
 ```
 
+Entrenar, comparar candidatos, y registrar el champion (requiere
+`SUPABASE_SERVICE_ROLE_KEY`, sube el artefacto a Supabase Storage):
+
+```bash
+python src/train.py
+```
+
+Probar que el champion registrado se puede volver a cargar y predecir:
+
+```bash
+python src/predict.py
+```
+
 ## Estructura del repo
 
 ```
 src/pulso_transmi/     SDK cliente (heredado del starter kit)
+src/features.py         Feature engineering compartido (EDA + entrenamiento)
+src/train.py            Entrena, compara candidatos y registra el champion
+src/predict.py          Recarga el champion desde Storage y predice (smoke test)
 examples/               Scripts de ejemplo del starter kit
 eda/                    Analisis exploratorio, graficos, reportes
 supabase/               Esquema de la base de datos y script de migracion
 docs/                   Documentacion: API, guia del proyecto, entidad-relacion
+artifacts/              Modelos entrenados localmente (ignorado por git)
 tests/                  Tests del SDK (heredados del starter kit)
 ```
 
