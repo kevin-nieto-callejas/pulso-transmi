@@ -110,6 +110,16 @@ create table drift_signals (
     action_taken text
 );
 
+-- Indices para las FK que el linter de performance de Supabase marco sin
+-- cobertura (predictions y submissions creceran rapido en fase operativa:
+-- 48 filas por ciclo, un ciclo por hora).
+create index cycle_metrics_cycle_id_idx on cycle_metrics (cycle_id);
+create index cycle_metrics_station_id_idx on cycle_metrics (station_id);
+create index predictions_model_version_id_idx on predictions (model_version_id);
+create index predictions_station_id_idx on predictions (station_id);
+create index submissions_cycle_id_idx on submissions (cycle_id);
+create index submissions_model_version_id_idx on submissions (model_version_id);
+
 -- Row Level Security: lectura publica (sin PII en este esquema), escritura
 -- restringida a la service_role key (ver docs/entity-relation.md).
 alter table stations enable row level security;
