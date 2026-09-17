@@ -1,0 +1,42 @@
+{
+  "duplicated_rows": 0,
+  "null_counts": {
+    "observed_at": 0,
+    "station_id": 0,
+    "demand": 0
+  },
+  "dtypes": {
+    "observed_at": "datetime64[ns, UTC-05:00]",
+    "station_id": "string",
+    "demand": "int64"
+  },
+  "coverage_per_station": {
+    "02300": 4320,
+    "03000": 4320,
+    "05000": 4320,
+    "05100": 4320,
+    "06000": 4320,
+    "06111": 4320,
+    "07105": 4320,
+    "07107": 4320,
+    "07111": 4320,
+    "09000": 4320,
+    "09122": 4320,
+    "10009": 4320
+  },
+  "expected_periods": 4320,
+  "stations_with_gaps": {},
+  "missing_timestamps_per_station": {},
+  "demand_negative_count": 0,
+  "demand_stats": {
+    "count": 51840.0,
+    "mean": 356.5228780864198,
+    "std": 319.4690246377807,
+    "min": 14.0,
+    "25%": 122.0,
+    "50%": 263.0,
+    "75%": 460.0,
+    "max": 2284.0
+  },
+  "stations_without_metadata": []
+}
