@@ -35,7 +35,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
-from features import build_feature_frame  # noqa: E402
+from features import HORIZONS_MINUTES, build_feature_frame  # noqa: E402
 from predict import get_champion, load_model_from_storage  # noqa: E402
 
 API_URL = os.environ.get("PULSO_API_URL", "https://pulso-transmi.72-60-245-2.sslip.io").rstrip("/")
@@ -152,17 +152,38 @@ def build_batch_predictions(
     de su estacion (lo unico que cambia entre horizontes es `horizon_minutes`
     dentro del vector de features) - nunca reconstruye lags con datos del
     futuro que todavia no se conocen.
+
+    El horizonte se mide desde el ANCLA REAL (la ultima observacion que
+    tenemos), no desde `data_cutoff`. Normalmente son el mismo instante, pero
+    si el collector va atrasado el ancla queda antes del corte: decirle al
+    modelo "salta 15 minutos" cuando en realidad debe saltar 45 produce
+    predicciones sistematicamente malas SIN lanzar ningun error. Se calcula
+    la distancia verdadera y se avisa fuerte cuando hay atraso.
     """
     predictions = []
     for target in targets:
         station_id = str(target["station_id"])
         target_at = pd.Timestamp(target["target_at"])
-        horizon_minutes = round((target_at - data_cutoff).total_seconds() / 60)
 
         if station_id not in anchor_by_station.index:
             raise ValueError(f"No hay historico reciente para la estacion {station_id!r} en data_cutoff={data_cutoff}")
 
         row = anchor_by_station.loc[[station_id]].copy()
+        anchor_at = pd.Timestamp(row["observed_at"].iloc[0])
+        horizon_minutes = round((target_at - anchor_at).total_seconds() / 60)
+
+        lag_minutes = round((data_cutoff - anchor_at).total_seconds() / 60)
+        if lag_minutes > 0:
+            print(
+                f"  AVISO {station_id}: el ancla ({anchor_at}) va {lag_minutes} min por detras del "
+                f"data_cutoff ({data_cutoff}). Horizonte real usado: {horizon_minutes} min."
+            )
+        if horizon_minutes > max(HORIZONS_MINUTES):
+            print(
+                f"  AVISO {station_id}: horizonte {horizon_minutes} min supera el maximo entrenado "
+                f"({max(HORIZONS_MINUTES)} min). El modelo esta extrapolando; revisar el collector."
+            )
+
         row["horizon_minutes"] = horizon_minutes
         missing = [c for c in feature_columns if c not in row.columns]
         for col in missing:

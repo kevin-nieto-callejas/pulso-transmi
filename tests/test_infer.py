@@ -66,8 +66,10 @@ def test_parse_targets_raises_with_payload_when_missing() -> None:
 
 def test_build_batch_predictions_computes_horizon_and_clips_values() -> None:
     data_cutoff = pd.Timestamp("2026-09-20T10:00:00+00:00")
+    # Caso normal: el ancla coincide con el corte de datos (collector al dia).
     anchor_by_station = pd.DataFrame(
-        {"some_feat": [1.0, 2.0]}, index=pd.Index(["03000", "05000"], name="station_id"),
+        {"some_feat": [1.0, 2.0], "observed_at": [data_cutoff, data_cutoff]},
+        index=pd.Index(["03000", "05000"], name="station_id"),
     )
     targets = [
         {"station_id": "03000", "target_at": "2026-09-20T10:15:00+00:00"},
@@ -84,6 +86,34 @@ def test_build_batch_predictions_computes_horizon_and_clips_values() -> None:
     assert predictions[0] == {"station_id": "03000", "target_at": "2026-09-20T10:15:00+00:00", "value": 0.0}
     assert predictions[1]["value"] == 42.35 or predictions[1]["value"] == 42.34  # redondeo a 2 decimales
     assert predictions[2] == {"station_id": "05000", "target_at": "2026-09-20T10:15:00+00:00", "value": 100000.0}
+
+
+def test_horizonte_se_mide_desde_el_ancla_no_desde_el_data_cutoff() -> None:
+    """Riesgo detectado antes de la competencia real: si el collector va
+    atrasado, el ancla queda ANTES del data_cutoff. Medir el horizonte desde
+    el data_cutoff le diria al modelo "salta 15 min" cuando en realidad debe
+    saltar 45 -> predicciones malas y ningun error visible."""
+    data_cutoff = pd.Timestamp("2026-09-20T10:00:00+00:00")
+    # El ancla va 30 minutos atrasada respecto al corte de datos.
+    anchor_by_station = pd.DataFrame(
+        {"some_feat": [1.0], "observed_at": [pd.Timestamp("2026-09-20T09:30:00+00:00")]},
+        index=pd.Index(["03000"], name="station_id"),
+    )
+    targets = [{"station_id": "03000", "target_at": "2026-09-20T10:15:00+00:00"}]
+
+    capturado = {}
+
+    class _ModeloQueEspia:
+        def predict(self, frame):
+            capturado["horizon"] = frame["horizon_minutes"].iloc[0]
+            return [42.0]
+
+    infer.build_batch_predictions(
+        _ModeloQueEspia(), ["some_feat", "horizon_minutes"], anchor_by_station, targets, data_cutoff,
+    )
+
+    # 10:15 - 09:30 = 45 min reales, no los 15 que sugiere el data_cutoff.
+    assert capturado["horizon"] == 45
 
 
 def test_build_batch_predictions_raises_for_unknown_station() -> None:
