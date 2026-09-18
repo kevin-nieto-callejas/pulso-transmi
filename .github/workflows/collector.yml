@@ -1,0 +1,29 @@
+name: collector
+
+# La guia metodologica ("Automatizaciones esperadas -> Collector") pide que
+# se active cada 30 minutos. Corre igual mientras el stream este vacio (el
+# reloj en `waiting`): src/ingest.py deja evidencia en collector_runs incluso
+# sin novedades, y el cron de GitHub va en UTC (nunca se fabrica un cursor a
+# partir de la hora local).
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e .
+      - run: python src/ingest.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

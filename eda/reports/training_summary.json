@@ -1,22 +1,57 @@
 {
   "candidates": {
-    "rf_full": 86.34476035085467,
-    "rf_no_weekly_lag": 85.4785726980248,
-    "gbr_full": 86.16136658757837,
-    "extra_trees_full": 86.56052877580453,
-    "rf_tuned": 86.48212778748288,
-    "xgboost_full": 86.60913421099272,
-    "xgboost_station": 86.76764243345619,
-    "xgboost_tuned2": 86.59124902089897
+    "rf_full": 82.92038489700536,
+    "rf_no_weekly_lag": 80.81481752888848,
+    "gbr_full": 80.81759460976146,
+    "extra_trees_full": 84.36913121976312,
+    "rf_tuned": 84.5457775728079,
+    "xgboost_full": 84.28238409373544,
+    "xgboost_station": 85.2201953457543,
+    "xgboost_tuned2": 83.60422399268461
   },
-  "fragility_gap": 0.8661876528298649,
+  "accuracy_by_horizon": {
+    "+15min": 86.2305206963951,
+    "+30min": 85.56476385815765,
+    "+45min": 85.04585314695365,
+    "+60min": 84.58859766204368
+  },
+  "fragility_gap": 2.10556736811688,
   "winner_this_run": "xgboost_station",
-  "version_id": "xgboost_station-20260917T042928Z",
+  "version_id": "xgboost_station-20260918T044429Z",
   "promoted": true,
   "previous_champion": {
-    "version_id": "xgboost_full-20260917T035525Z",
-    "validation_metric": 86.6091342109927
+    "version_id": "xgboost_station-20260917T042928Z",
+    "validation_metric": 86.7676424334562,
+    "features": [
+      "hour_sin",
+      "hour_cos",
+      "dow_sin",
+      "dow_cos",
+      "is_weekend",
+      "lag_1",
+      "lag_4",
+      "lag_96",
+      "lag_672",
+      "roll_mean_4",
+      "roll_mean_96",
+      "roll_std_96",
+      "rain_mm",
+      "temperature_c",
+      "event_intensity",
+      "station_02300",
+      "station_03000",
+      "station_05000",
+      "station_05100",
+      "station_06000",
+      "station_06111",
+      "station_07105",
+      "station_07107",
+      "station_07111",
+      "station_09000",
+      "station_09122",
+      "station_10009"
+    ]
   },
   "data_cutoff": "2026-09-08T23:45:00-05:00",
-  "artifact_location": "supabase-storage://model-artifacts/xgboost_station-20260917T042928Z.joblib"
+  "artifact_location": "supabase-storage://model-artifacts/xgboost_station-20260918T044429Z.joblib"
 }

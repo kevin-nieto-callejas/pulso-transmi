@@ -49,39 +49,41 @@ ARTIFACTS.mkdir(exist_ok=True)
 
 sys.path.insert(0, str(ROOT / "src"))
 from features import (  # noqa: E402
-    ALL_FEATURE_COLUMNS,
-    NO_WEEKLY_LAG_FEATURE_COLUMNS,
+    HORIZONS_MINUTES,
+    MULTI_HORIZON_FEATURE_COLUMNS,
+    MULTI_HORIZON_NO_WEEKLY_LAG_FEATURE_COLUMNS,
     build_feature_frame,
+    explode_horizons,
     station_dummy_columns,
     wape_accuracy,
 )
 
 
 def build_candidates(observations: pd.DataFrame) -> dict:
-    with_station = ALL_FEATURE_COLUMNS + station_dummy_columns(observations)
+    with_station = MULTI_HORIZON_FEATURE_COLUMNS + station_dummy_columns(observations)
     return {
         "rf_full": (
-            RandomForestRegressor, ALL_FEATURE_COLUMNS,
+            RandomForestRegressor, MULTI_HORIZON_FEATURE_COLUMNS,
             dict(n_estimators=200, max_depth=10, random_state=20260916, n_jobs=-1),
         ),
         "rf_no_weekly_lag": (
-            RandomForestRegressor, NO_WEEKLY_LAG_FEATURE_COLUMNS,
+            RandomForestRegressor, MULTI_HORIZON_NO_WEEKLY_LAG_FEATURE_COLUMNS,
             dict(n_estimators=200, max_depth=10, random_state=20260916, n_jobs=-1),
         ),
         "gbr_full": (
-            GradientBoostingRegressor, ALL_FEATURE_COLUMNS,
+            GradientBoostingRegressor, MULTI_HORIZON_FEATURE_COLUMNS,
             dict(n_estimators=200, max_depth=3, learning_rate=0.05, random_state=20260916),
         ),
         "extra_trees_full": (
-            ExtraTreesRegressor, ALL_FEATURE_COLUMNS,
+            ExtraTreesRegressor, MULTI_HORIZON_FEATURE_COLUMNS,
             dict(n_estimators=300, max_depth=14, random_state=20260916, n_jobs=-1),
         ),
         "rf_tuned": (
-            RandomForestRegressor, ALL_FEATURE_COLUMNS,
+            RandomForestRegressor, MULTI_HORIZON_FEATURE_COLUMNS,
             dict(n_estimators=500, max_depth=16, min_samples_leaf=2, random_state=20260916, n_jobs=-1),
         ),
         "xgboost_full": (
-            XGBRegressor, ALL_FEATURE_COLUMNS,
+            XGBRegressor, MULTI_HORIZON_FEATURE_COLUMNS,
             dict(
                 n_estimators=400, max_depth=6, learning_rate=0.05,
                 subsample=0.8, colsample_bytree=0.8, random_state=20260916,
@@ -97,7 +99,7 @@ def build_candidates(observations: pd.DataFrame) -> dict:
             ),
         ),
         "xgboost_tuned2": (
-            XGBRegressor, ALL_FEATURE_COLUMNS,
+            XGBRegressor, MULTI_HORIZON_FEATURE_COLUMNS,
             dict(
                 n_estimators=800, max_depth=5, learning_rate=0.02,
                 subsample=0.7, colsample_bytree=0.7, min_child_weight=3,
@@ -116,7 +118,13 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def evaluate_candidate(model_cls, feature_columns: list[str], params: dict, feature_frame: pd.DataFrame) -> float:
-    model_frame = feature_frame.dropna(subset=feature_columns + ["demand"]).sort_values("observed_at")
+    """Validacion cruzada temporal. El split ocurre sobre `observed_at`, que
+    en el frame multi-horizonte sigue siendo el momento ANCLA (lo que se
+    sabe al predecir) aunque cada ancla aparezca 4 veces, una por horizonte
+    -eso mantiene el split libre de fuga de futuro sin importar cuantos
+    horizontes se apilen.
+    """
+    model_frame = feature_frame.dropna(subset=feature_columns + ["target_demand"]).sort_values("observed_at")
     unique_times = model_frame["observed_at"].sort_values().unique()
     splitter = TimeSeriesSplit(n_splits=5)
     accuracies = []
@@ -130,13 +138,13 @@ def evaluate_candidate(model_cls, feature_columns: list[str], params: dict, feat
             continue
 
         model = model_cls(**params)
-        model.fit(train[feature_columns], train["demand"])
+        model.fit(train[feature_columns], train["target_demand"])
         preds = model.predict(test[feature_columns])
 
         acc_per_station = (
             test.assign(prediction=preds)
-            .groupby("station_id")[["demand", "prediction"]]
-            .apply(lambda g: wape_accuracy(g["demand"].values, g["prediction"].values))
+            .groupby("station_id")[["target_demand", "prediction"]]
+            .apply(lambda g: wape_accuracy(g["target_demand"].values, g["prediction"].values))
         )
         accuracies.append(acc_per_station.mean())
 
@@ -164,7 +172,7 @@ def get_current_champion() -> dict | None:
         response = client.get(
             f"{url}/rest/v1/model_versions",
             headers=supabase_headers(),
-            params={"status": "eq.champion", "select": "version_id,validation_metric"},
+            params={"status": "eq.champion", "select": "version_id,validation_metric,features"},
         )
         response.raise_for_status()
         rows = response.json()
@@ -234,10 +242,11 @@ def register_model_version(version_id, data_cutoff, features, validation_metric,
 
 def main() -> None:
     observations, context = load_data()
-    feature_frame = build_feature_frame(observations, context)
+    anchor_frame = build_feature_frame(observations, context)
+    feature_frame = explode_horizons(anchor_frame)
     candidates = build_candidates(observations)
 
-    print("=== Comparacion de candidatos (validacion cruzada temporal, 5 folds) ===")
+    print("=== Comparacion de candidatos (validacion cruzada temporal, 5 folds, horizontes +15/+30/+45/+60 apilados) ===")
     results = {}
     for name, (model_cls, feature_columns, params) in candidates.items():
         accuracy = evaluate_candidate(model_cls, feature_columns, params, feature_frame)
@@ -251,16 +260,34 @@ def main() -> None:
     winner_accuracy = results[winner_name]
     print(f"\nMejor candidato de esta corrida: {winner_name} (accuracy_mean={winner_accuracy:.2f})")
 
-    current_champion = get_current_champion()
-    if current_champion is not None:
-        print(f"Champion vigente: {current_champion['version_id']} (accuracy={current_champion['validation_metric']:.2f})")
-
-    promote = current_champion is None or winner_accuracy > current_champion["validation_metric"]
-
     model_cls, feature_columns, params = candidates[winner_name]
-    model_frame = feature_frame.dropna(subset=feature_columns + ["demand"])
+    print("\nDesglose por horizonte (mismo candidato ganador, misma validacion):")
+    accuracy_by_horizon = {}
+    for horizon in HORIZONS_MINUTES:
+        subset = feature_frame[feature_frame["horizon_minutes"] == horizon]
+        acc_h = evaluate_candidate(model_cls, feature_columns, params, subset)
+        accuracy_by_horizon[f"+{horizon}min"] = acc_h
+        print(f"  +{horizon:>2}min  accuracy={acc_h:.2f}")
+
+    current_champion = get_current_champion()
+    champion_is_comparable = bool(current_champion) and "horizon_minutes" in (current_champion.get("features") or [])
+    if current_champion is not None:
+        print(f"\nChampion vigente: {current_champion['version_id']} (accuracy={current_champion['validation_metric']:.2f})")
+        if not champion_is_comparable:
+            print(
+                "Ese numero se calculo con el esquema anterior (un solo horizonte, +15 min, "
+                "'nowcasting'). No es comparable contra el nuevo esquema multi-horizonte directo "
+                "(+15/+30/+45/+60 con 'horizon_minutes' como feature): predecir 4 horizontes a la vez "
+                "es un problema mas dificil que predecir solo el siguiente paso, asi que el nuevo "
+                "numero puede ser menor sin que eso signifique un peor modelo. Se reemplaza el "
+                "champion por incompatibilidad de esquema, no por comparacion numerica directa."
+            )
+
+    promote = current_champion is None or not champion_is_comparable or winner_accuracy > current_champion["validation_metric"]
+
+    model_frame = feature_frame.dropna(subset=feature_columns + ["target_demand"])
     final_model = model_cls(**params)
-    final_model.fit(model_frame[feature_columns], model_frame["demand"])
+    final_model.fit(model_frame[feature_columns], model_frame["target_demand"])
 
     data_cutoff = observations["observed_at"].max().isoformat()
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -278,7 +305,12 @@ def main() -> None:
             demote_to_historical(current_champion["version_id"])
             print(f"Champion anterior degradado a 'historical': {current_champion['version_id']}")
         status = "champion"
-        print(f"PROMOVIDO a champion: {version_id} (superó al anterior)" if current_champion else f"PROMOVIDO a champion (primer modelo): {version_id}")
+        if current_champion is None:
+            print(f"PROMOVIDO a champion (primer modelo): {version_id}")
+        elif not champion_is_comparable:
+            print(f"PROMOVIDO a champion: {version_id} (reemplaza un champion de esquema anterior no comparable)")
+        else:
+            print(f"PROMOVIDO a champion: {version_id} (superó al anterior)")
     else:
         status = "candidate"
         print(
@@ -298,6 +330,7 @@ def main() -> None:
 
     summary = {
         "candidates": results,
+        "accuracy_by_horizon": accuracy_by_horizon,
         "fragility_gap": fragility_gap,
         "winner_this_run": winner_name,
         "version_id": version_id,

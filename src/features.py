@@ -20,6 +20,18 @@ NO_WEEKLY_LAG_FEATURE_COLUMNS = [
     c for c in ALL_FEATURE_COLUMNS if c not in ("lag_672", "roll_mean_96", "roll_std_96")
 ]
 
+# La API pide 4 horizontes por ciclo (+15/+30/+45/+60 min). Un modelo
+# entrenado para predecir la propia fila (lag_1 = paso anterior) solo
+# generaliza a +15: para +30 necesitaria lag_1 = demanda en target-15, que
+# todavia no existe en data_cutoff. La solucion es "horizonte directo": una
+# sola familia de modelos que recibe `horizon_minutes` como feature y cuyo
+# target es la demanda desplazada hacia adelante ese horizonte, siempre
+# usando unicamente lags anclados en el momento de prediccion (nunca en el
+# futuro). Ver train.py y README ("Modelo") para el detalle.
+HORIZONS_MINUTES = (15, 30, 45, 60)
+MULTI_HORIZON_FEATURE_COLUMNS = ALL_FEATURE_COLUMNS + ["horizon_minutes"]
+MULTI_HORIZON_NO_WEEKLY_LAG_FEATURE_COLUMNS = NO_WEEKLY_LAG_FEATURE_COLUMNS + ["horizon_minutes"]
+
 
 def build_feature_frame(observations: pd.DataFrame, context: pd.DataFrame) -> pd.DataFrame:
     frame = observations.sort_values(["station_id", "observed_at"]).copy()
@@ -57,6 +69,27 @@ def build_feature_frame(observations: pd.DataFrame, context: pd.DataFrame) -> pd
 
 def station_dummy_columns(observations: pd.DataFrame) -> list[str]:
     return [f"station_{sid}" for sid in sorted(observations["station_id"].unique())]
+
+
+def explode_horizons(anchor_frame: pd.DataFrame, horizons_minutes: tuple[int, ...] = HORIZONS_MINUTES) -> pd.DataFrame:
+    """Convierte cada fila ancla en 4 filas de entrenamiento, una por horizonte.
+
+    Todas las features siguen ancladas en `observed_at` (lo que se sabe al
+    predecir); solo cambia `horizon_minutes` y el target `target_demand`
+    (la demanda real en `observed_at + horizonte`, tomada directamente del
+    futuro conocido en el historico, nunca reconstruida con lags de ese
+    futuro).
+    """
+    grouped = anchor_frame.sort_values(["station_id", "observed_at"]).groupby("station_id")["demand"]
+    variants = []
+    for horizon in horizons_minutes:
+        steps = horizon // 15
+        variant = anchor_frame.copy()
+        variant["horizon_minutes"] = horizon
+        variant["target_at"] = variant["observed_at"] + pd.Timedelta(minutes=horizon)
+        variant["target_demand"] = grouped.shift(-steps).reindex(variant.index)
+        variants.append(variant)
+    return pd.concat(variants, ignore_index=True)
 
 
 def wape_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:

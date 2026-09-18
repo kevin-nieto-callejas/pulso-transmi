@@ -1,0 +1,32 @@
+name: inference
+
+# La guia sugiere consultar el ciclo cerca del minuto 07 (para inferir y
+# enviar si esta abierto) y cerca del minuto 37 (para el siguiente lote). Los
+# minutos son una recomendacion operacional, no una fuente de verdad: la
+# decision real siempre la toma src/infer.py consultando /v1/clock y
+# /v1/forecast-cycles/current, y termina sin error si no hay ciclo abierto -
+# por eso este workflow puede (y debe) correr ya mismo, aunque el reloj siga
+# en `waiting`.
+on:
+  schedule:
+    - cron: "7,37 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  infer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e '.[ml]'
+      - run: python src/infer.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PULSO_API_KEY: ${{ secrets.PULSO_API_KEY }}
