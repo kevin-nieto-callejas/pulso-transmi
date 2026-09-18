@@ -1,0 +1,35 @@
+{
+  "_comentario": "Estado del contrato del profesor que este repo ya revisó y con el que sabemos que nuestro pipeline funciona. src/check_contract.py compara la realidad contra esto y falla si algo cambió. Cuando revisemos un cambio y adaptemos el código, actualizamos estos valores a propósito.",
+  "api_version": "0.4.1",
+  "upstream_repo": "uexternadojz/pulso-transmi",
+  "upstream_last_reviewed_sha": "ad58948acd18d82a5ccdcb06724652973fac1fbc",
+  "upstream_last_reviewed_date": "2026-09-18T18:17:16Z",
+  "endpoints_requeridos": [
+    "/v1/clock",
+    "/v1/forecast-cycles/current",
+    "/v1/submissions",
+    "/v1/me",
+    "/v1/stream/observations",
+    "/v1/context",
+    "/v1/leaderboard"
+  ],
+  "campos_submission": [
+    "schema_version",
+    "cycle_id",
+    "client_run_id",
+    "data_cutoff",
+    "model",
+    "predictions"
+  ],
+  "campos_prediction": [
+    "station_id",
+    "target_at",
+    "value"
+  ],
+  "campos_ciclo_que_usamos": [
+    "cycle_id",
+    "data_cutoff",
+    "closes_at",
+    "targets"
+  ]
+}

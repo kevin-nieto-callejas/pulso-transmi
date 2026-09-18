@@ -1,0 +1,33 @@
+name: contract-watch
+
+# El profesor versiona su plataforma con frecuencia (portal, contrato, API,
+# frontend). Si cambia algo que usamos y no nos enteramos, el pipeline puede
+# dejar de entregar justo en un ciclo real. Este vigilante compara la realidad
+# contra contract/expected.json y FALLA cuando algo cambio: GitHub manda correo
+# automaticamente al fallar un workflow, asi nos enteramos sin estar revisando
+# a mano.
+#
+# Fallar aqui no significa que algo este roto: significa "hay que mirarlo".
+on:
+  schedule:
+    # Cuatro veces al dia, en minutos poco congestionados.
+    - cron: "17 6,12,18,23 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e .
+      - run: python src/check_contract.py
+        env:
+          # Solo para no pegarle al limite de peticiones anonimas de GitHub.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
