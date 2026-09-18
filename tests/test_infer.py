@@ -105,6 +105,29 @@ def test_make_idempotency_key_is_stable_per_cycle_and_model() -> None:
     assert 8 <= len(key1) <= 128
 
 
+def test_fetch_all_rows_pagina_hasta_el_final(monkeypatch) -> None:
+    """Regresion real (18/09): Supabase corta TODA respuesta en 1000 filas
+    aunque se pida limit=5000. La paginacion anterior asumia paginas de 5000,
+    asi que paraba en la primera y solo cargaba 1 de las 12 estaciones -
+    rompio la primera corrida contra el ciclo de practica."""
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "fake-key")
+    rangos_pedidos = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        rangos_pedidos.append(request.headers["Range"])
+        start = int(request.headers["Range"].split("-")[0])
+        total = 2300  # dos paginas llenas + una parcial
+        restantes = max(0, total - start)
+        n = min(1000, restantes)
+        return httpx.Response(200, json=[{"i": start + k} for k in range(n)])
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    filas = infer.fetch_all_rows(client, "https://sb.test/rest/v1/observations", {}, {})
+
+    assert len(filas) == 2300
+    assert rangos_pedidos == ["0-999", "1000-1999", "2000-2999"]
+
+
 def test_already_submitted_detects_existing_accepted_submission(monkeypatch) -> None:
     """Corridas solapadas (el cron dispara cada 10 min a proposito, porque
     GitHub descarta corridas) no deben rearmar ni reenviar un ciclo que la

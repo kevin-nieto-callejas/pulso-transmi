@@ -82,6 +82,30 @@ def parse_targets(cycle: dict) -> list[dict]:
     )
 
 
+PAGE_SIZE = 1000  # Supabase/PostgREST NUNCA devuelve mas de 1000 filas por
+# respuesta, sin importar el `limit` que se pida. Asumir un tamano mayor hace
+# que la paginacion termine en la primera pagina: el bug que rompio la primera
+# corrida contra el ciclo de practica real (solo cargaba 1 de las 12
+# estaciones, porque 1000 filas ordenadas por estacion no alcanzan ni para la
+# segunda). Se confirma empiricamente con la cabecera Content-Range: 0-999/N.
+
+
+def fetch_all_rows(client: httpx.Client, url: str, headers: dict, params: dict) -> list[dict]:
+    """Pagina una consulta de PostgREST hasta traer todas las filas."""
+    rows: list[dict] = []
+    start = 0
+    while True:
+        response = client.get(
+            url, headers={**headers, "Range-Unit": "items", "Range": f"{start}-{start + PAGE_SIZE - 1}"}, params=params,
+        )
+        response.raise_for_status()
+        page = response.json()
+        rows.extend(page)
+        if len(page) < PAGE_SIZE:
+            return rows
+        start += PAGE_SIZE
+
+
 def build_anchor_features(client: httpx.Client, supabase_url: str, data_cutoff: pd.Timestamp) -> pd.DataFrame:
     """Reconstruye, por estacion, la fila de features tal como se veian en
     `data_cutoff` (usa hasta 8 dias hacia atras para cubrir lag_672 y
@@ -90,45 +114,35 @@ def build_anchor_features(client: httpx.Client, supabase_url: str, data_cutoff: 
     window_start = (data_cutoff - pd.Timedelta(days=8)).isoformat()
     headers = supabase_headers()
 
-    obs_rows: list[dict] = []
-    cursor_range = "0-4999"
-    while True:
-        response = client.get(
-            f"{supabase_url}/rest/v1/observations",
-            headers={**headers, "Range": cursor_range},
-            params={
-                "observed_at": [f"gte.{window_start}", f"lte.{data_cutoff.isoformat()}"],
-                "select": "station_id,observed_at,demand",
-                "order": "station_id,observed_at",
-            },
-        )
-        response.raise_for_status()
-        page = response.json()
-        obs_rows.extend(page)
-        if len(page) < 5000:
-            break
-        start, _ = (int(x) for x in cursor_range.split("-"))
-        cursor_range = f"{start + 5000}-{start + 9999}"
-
-    context_response = client.get(
-        f"{supabase_url}/rest/v1/context_readings",
-        headers=headers,
-        params={
+    obs_rows = fetch_all_rows(
+        client, f"{supabase_url}/rest/v1/observations", headers,
+        {
+            "observed_at": [f"gte.{window_start}", f"lte.{data_cutoff.isoformat()}"],
+            "select": "station_id,observed_at,demand",
+            "order": "station_id,observed_at",
+        },
+    )
+    context_rows = fetch_all_rows(
+        client, f"{supabase_url}/rest/v1/context_readings", headers,
+        {
             "observed_at": [f"gte.{window_start}", f"lte.{data_cutoff.isoformat()}"],
             "select": "observed_at,rain_mm,temperature_c,event_intensity",
             "order": "observed_at",
         },
     )
-    context_response.raise_for_status()
 
     observations = pd.DataFrame(obs_rows)
+    if observations.empty:
+        raise RuntimeError(f"Supabase no devolvio observaciones entre {window_start} y {data_cutoff}")
     observations["station_id"] = observations["station_id"].astype("string")
     observations["observed_at"] = pd.to_datetime(observations["observed_at"])
-    context = pd.DataFrame(context_response.json())
+    context = pd.DataFrame(context_rows)
     context["observed_at"] = pd.to_datetime(context["observed_at"])
 
     anchor_frame = build_feature_frame(observations, context)
-    return anchor_frame.sort_values("observed_at").groupby("station_id").tail(1).set_index("station_id")
+    anchors = anchor_frame.sort_values("observed_at").groupby("station_id").tail(1).set_index("station_id")
+    print(f"Ancla reconstruida para {len(anchors)} estaciones ({len(observations)} observaciones leidas).")
+    return anchors
 
 
 def build_batch_predictions(
