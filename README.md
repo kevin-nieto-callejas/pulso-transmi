@@ -12,8 +12,8 @@ análisis, esquema de datos, migración— es trabajo propio del equipo.
 
 ## Estado actual
 
-Fases 1 y 3 de la guía metodológica ("Comprender" y "Experimentar"), con
-media Fase 2 ("Construir la memoria"):
+Fases 1, 2 y 3 de la guía metodológica ("Comprender", "Construir la
+memoria" y "Experimentar"):
 
 - ✅ SDK instalado, histórico descargado (12 estaciones, 45 días, 51.840
   observaciones).
@@ -23,14 +23,44 @@ media Fase 2 ("Construir la memoria"):
 - ✅ Base de datos en Supabase con el histórico migrado — ver
   [`docs/entity-relation.md`](docs/entity-relation.md) para el esquema,
   el diagrama entidad-relación y las políticas de seguridad (RLS).
-- ✅ Modelo champion entrenado, comparado contra 2 alternativas y
+- ✅ Modelo champion entrenado, comparado contra 7 alternativas y
   registrado en `model_versions` (artefacto en Supabase Storage) — ver
   [`src/train.py`](src/train.py) y la sección "Modelo" abajo.
-- ⬜ Collector incremental automatizado (próxima fase, cuando se active
-  el stream en vivo).
-- ⬜ Inferencia periódica vía GitHub Actions y submissions.
+- ✅ Collector incremental idempotente (`src/ingest.py`) — probado en
+  vivo contra el stream real (vacío, reloj en `waiting`); deja evidencia
+  en `collector_runs` en cada corrida, incluso sin novedades.
+- ⬜ Inferencia periódica vía GitHub Actions y submissions (bloqueado:
+  requiere que el profesor active el reloj y habilite la API key).
 - ⬜ Monitoreo de drift y reentrenamiento.
 - ⬜ Dashboard (bono).
+
+## Collector incremental
+
+`src/ingest.py` sigue el patrón que exige la guía metodológica
+("Automatizaciones esperadas — Collector"):
+
+- Retoma el cursor del **último `collector_runs` con `status='success'`**
+  guardado en Supabase — nunca lo fabrica a partir de la hora local.
+- Pagina `/v1/stream/observations` hasta agotar `next_cursor`.
+- Para `context_readings` (que no tiene cursor propio en la API), usa el
+  máximo `observed_at` ya guardado como filtro `start`.
+- El upsert usa las mismas llaves únicas del esquema → correrlo N veces
+  seguidas nunca duplica filas (verificado: 4 corridas seguidas, mismo
+  conteo exacto de filas en `observations`/`context_readings`).
+- Deja evidencia en `collector_runs` **siempre**, incluso cuando no hay
+  novedades (`status='no_new_data'`) — así se ve en la bitácora real de
+  hoy: una corrida con un bug de comparación de fechas (detectado y
+  corregido, con test de regresión en `tests/test_ingest.py`), y las
+  siguientes ya limpias.
+- Regla de seguridad ante ambigüedad de la API: si la API deja de
+  paginar (`next_cursor: null`) sin dejar claro cómo continuar después,
+  el collector conserva el cursor con el que pidió esa última página en
+  vez de arriesgarse a perderlo — el peor caso es repetir una página
+  (inofensivo, gracias al upsert idempotente), nunca perder el progreso.
+
+```bash
+python src/ingest.py
+```
 
 ## Modelo
 
@@ -147,6 +177,12 @@ python eda/eda.py                  # calidad de datos, graficos, feature
                                     # validacion cruzada temporal
 ```
 
+Correr el collector incremental (requiere `SUPABASE_SERVICE_ROLE_KEY`):
+
+```bash
+python src/ingest.py
+```
+
 Migrar (o re-migrar; es idempotente) el histórico a Supabase requiere la
 `service_role` key en `SUPABASE_SERVICE_ROLE_KEY` (ver `.env.example`):
 
@@ -172,6 +208,7 @@ python src/predict.py
 ```
 src/pulso_transmi/     SDK cliente (heredado del starter kit)
 src/features.py         Feature engineering compartido (EDA + entrenamiento)
+src/ingest.py           Collector incremental idempotente
 src/train.py            Entrena, compara candidatos y registra el champion
 src/predict.py          Recarga el champion desde Storage y predice (smoke test)
 examples/               Scripts de ejemplo del starter kit
@@ -179,7 +216,7 @@ eda/                    Analisis exploratorio, graficos, reportes
 supabase/               Esquema de la base de datos y script de migracion
 docs/                   Documentacion: API, guia del proyecto, entidad-relacion
 artifacts/              Modelos entrenados localmente (ignorado por git)
-tests/                  Tests del SDK (heredados del starter kit)
+tests/                  Tests del SDK (heredados del starter kit) + tests del collector
 ```
 
 ## Fuentes
