@@ -18,6 +18,8 @@ entrega el profesor al activar el reloj):
 
 - ✅ SDK instalado, histórico descargado (12 estaciones, 45 días, 51.840
   observaciones).
+- 📓 **Bitácora del proyecto** — qué se construyó, qué se rompió, cómo se
+  detectó y qué se decidió: [`docs/BITACORA.md`](docs/BITACORA.md).
 - ✅ Análisis exploratorio completo: calidad de datos, estacionalidad,
   correlaciones, feature engineering, selección de features y
   validación cruzada temporal — ver [`eda/EDA_REPORT.md`](eda/EDA_REPORT.md).

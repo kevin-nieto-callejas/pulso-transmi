@@ -1,0 +1,216 @@
+# Bitácora del proyecto — Pulso TransMi
+
+Registro cronológico de qué se construyó, qué se rompió, cómo se detectó y
+qué se decidió. Es la materia prima del informe final (entregable 11:
+*"qué cambió, qué funcionó y qué harían después"*) y se actualiza a medida
+que avanza el proyecto, no al final.
+
+**Equipo:** Kevin Nieto — Grupo A · VIS2-2026II
+**Repositorio:** https://github.com/kevin-nieto-callejas/pulso-transmi
+**Base de datos:** Supabase (proyecto `pulso-transmi`)
+
+---
+
+## Resumen de estado
+
+| Fase | Estado |
+|---|---|
+| 1 · Comprender | Completa |
+| 2 · Construir la memoria | Completa y automatizada |
+| 3 · Experimentar | Completa (8 candidatos + baseline) |
+| 4 · Operar | Submission aceptada en la ronda de práctica |
+| 5 · Aprender del error | Pendiente (requiere ciclos reales) |
+
+**Modelo champion vigente:** `xgboost_station-20260918T044429Z` — accuracy 85.22
+(validación cruzada temporal, 4 horizontes).
+
+---
+
+## Línea de tiempo
+
+### 16 de septiembre — Fases 1 y 2
+
+- Descarga del histórico: 12 estaciones, 45 días, 51.840 observaciones,
+  granularidad de 15 minutos.
+- EDA completo: calidad de datos, estacionalidad, correlaciones, selección de
+  features, validación cruzada temporal ([`eda/EDA_REPORT.md`](../eda/EDA_REPORT.md)).
+- Esquema de 11 tablas en Supabase y migración del histórico
+  ([`docs/entity-relation.md`](entity-relation.md)).
+- Primer modelo champion registrado con su artefacto en Supabase Storage.
+
+### 17 de septiembre — Fases 2 y 3
+
+- Collector incremental idempotente (`src/ingest.py`), probado contra el stream
+  real vacío.
+- Comparación de 8 candidatos y promoción del champion con regla explícita.
+
+### 18 de septiembre — Fase 4
+
+- Automatización real en GitHub Actions (collector e inferencia).
+- El docente publicó el portal de estudiantes y abrió la ronda de práctica
+  (`cyc_practice_20260918`).
+- **Submission aceptada:** `sub_b64352e18de5486ead9478e66d57c523`, 12/12
+  predicciones, `is_official: true`.
+- Vigilante del contrato del docente (`src/check_contract.py`).
+
+---
+
+## Problemas encontrados y cómo se resolvieron
+
+Esta sección es deliberadamente la más larga: los errores encontrados y
+corregidos dicen más del proceso que los aciertos.
+
+### 1. El modelo solo sabía predecir un paso adelante
+
+**Síntoma:** ninguno — ese es el punto. El modelo reportaba 86.77 de accuracy
+y parecía correcto.
+
+**Problema real:** se entrenó para predecir la demanda de su propia fila
+usando `lag_1` (el período anterior). Eso solo generaliza a +15 min. Para
++30/+45/+60 min ese mismo mecanismo exigiría conocer demanda posterior al
+`data_cutoff`, es decir, justo lo que se está tratando de predecir. El modelo
+habría fallado o entregado basura en 3 de cada 4 predicciones de cada ciclo.
+
+**Detección:** al releer la guía a fondo antes de construir la inferencia, no
+por una prueba que fallara.
+
+**Solución:** estrategia de *horizonte directo*. Cada fila ancla se apila 4
+veces (una por horizonte), se agrega `horizon_minutes` como feature y el
+target es la demanda real desplazada ese horizonte hacia adelante, con lags
+siempre anclados al momento de predicción.
+
+**Consecuencia honesta:** el accuracy bajó de 86.77 a 85.22. No es una
+regresión: el número anterior medía un problema más fácil que el real y nunca
+habría aparecido en el leaderboard. El desglose por horizonte muestra el
+patrón esperado (86.23 en +15 min → 84.59 en +60 min).
+
+### 2. Supabase devuelve máximo 1.000 filas y la paginación asumía 5.000
+
+**Síntoma:** la primera corrida contra un ciclo real falló con
+`No hay historico reciente para la estacion '05000'`.
+
+**Problema real:** PostgREST nunca devuelve más de 1.000 filas por respuesta,
+sin importar el `limit` solicitado. La condición de corte de la paginación
+(`len(page) < 5000`) se cumplía en la primera página, así que solo se cargaban
+~1.000 filas que, ordenadas por estación, no alcanzaban ni para la segunda de
+las 12.
+
+**Por qué no se detectó antes:** todas las pruebas previas usaban conjuntos
+pequeños o el stream vacío. El bug solo aparecía con volumen real.
+
+**Verificación:** `limit=5000` devuelve 1.000 filas y la cabecera
+`Content-Range: 0-999/51840`.
+
+**Solución:** `fetch_all_rows()` pagina con cabeceras `Range` de 1.000 en
+1.000 hasta agotar, con test de regresión.
+
+### 3. El horizonte se medía desde el corte de datos, no desde el ancla
+
+**Síntoma:** ninguno todavía — se detectó preparando la competencia real.
+
+**Problema real:** las features salen de la última observación disponible (el
+ancla), pero el horizonte se calculaba contra el `data_cutoff` del ciclo. En
+la práctica coincidieron, así que funcionó. En competencia el `data_cutoff`
+avanza cada hora y, si el collector va atrasado, el ancla queda antes del
+corte: se le diría al modelo "salta 15 minutos" cuando en realidad debe saltar
+45. Predicciones sistemáticamente malas **sin ningún error visible**.
+
+**Solución:** el horizonte se mide contra el timestamp real del ancla; se
+avisa cuando hay atraso y cuando el horizonte supera el máximo entrenado (60
+min), señal de que el collector se quedó atrás. Además el workflow de
+inferencia ejecuta el collector justo antes de inferir, con
+`continue-on-error` (entregar con datos algo viejos es mejor que no entregar).
+
+### 4. GitHub descarta las corridas programadas
+
+**Síntoma:** de ~28 corridas programadas esperadas en 7 horas, solo se
+ejecutaron 2.
+
+**Diagnóstico:** no era cuota (repositorio público, minutos ilimitados), ni un
+fork, ni workflows desactivados. GitHub no encola las corridas atrasadas: las
+descarta bajo carga, y `:00` y `:30` —donde estaba el cron del collector— son
+los minutos más congestionados de la plataforma.
+
+**Por qué importa:** perder la corrida de un ciclo significa perder su ventana
+de 25 minutos, es decir 48 predicciones en cero. Corresponde a la tercera
+señal de la guía: *"falla operacional: el pipeline no produjo o envió
+resultados — corregir la operación antes de culpar al modelo"*.
+
+**Solución en dos capas:**
+1. Más intentos en minutos menos congestionados (inferencia cada 10 min,
+   collector cada 15, nunca `:00` ni `:30`).
+2. Cada corrida vigila 8 minutos adicionales revisando cada 2, para que una
+   sola corrida que sí arranque cubra buena parte de la ventana. Un fallo
+   pasajero de red se reintenta en vez de abortar.
+
+Reenviar no duplica ni gasta intentos: la llave de idempotencia es estable por
+(ciclo, modelo) y, antes de rearmar el batch, se consulta si ese ciclo ya fue
+entregado.
+
+### 5. Otros arreglos menores
+
+- Índice único parcial `one_champion_only` para que la base impida a nivel
+  físico tener dos champions simultáneos.
+- Índices faltantes en llaves foráneas señalados por el linter de Supabase.
+- Sintaxis inválida (`PK_FK`) que impedía renderizar el diagrama Mermaid.
+- Petición redundante que generaba un `400` en cada corrida al recrear el
+  bucket de Storage.
+- CI instalaba solo el extra `dev`, sin `ml`, y no podía importar los módulos
+  de inferencia.
+
+---
+
+## Decisiones y por qué
+
+| Decisión | Razón |
+|---|---|
+| Partición siempre temporal (`TimeSeriesSplit`), nunca aleatoria | Mezclar futuro y pasado da métricas optimistas que no representan la competencia. |
+| Horizonte directo (un modelo con `horizon_minutes`) en vez de recursivo | Evita acumular error encadenando 4 predicciones de un paso y elimina por diseño la fuga de futuro. |
+| Corte de la validación por momento ancla, no por fila | Cada ancla genera 4 filas; partir por fila dejaría horizontes del mismo instante a ambos lados del corte. |
+| Accuracy promediado sin ponderar entre las 12 estaciones | Es la fórmula oficial: una estación de gran volumen no puede ocultar el mal desempeño de una pequeña. |
+| RLS con lectura pública y escritura solo con `service_role` | El esquema no contiene datos personales; permite que el dashboard y el docente consulten sin exponer escritura. |
+| Artefactos en Supabase Storage, no en el repositorio | *"Un resultado que solo funciona en el computador de una persona no está terminado"*. Un binario de 1.9 MB tampoco pertenece a git. |
+| Reemplazo del champion sin comparar números incompatibles | El champion anterior midió un problema más fácil (un horizonte). Comparar 86.77 contra 85.22 habría descartado un modelo mejor. Se detecta revisando si `horizon_minutes` está entre sus features. |
+
+---
+
+## Estado de la evidencia
+
+| Evidencia | Dónde |
+|---|---|
+| Análisis exploratorio | [`eda/EDA_REPORT.md`](../eda/EDA_REPORT.md) |
+| Esquema y diagrama entidad-relación | [`docs/entity-relation.md`](entity-relation.md) |
+| Comparación de candidatos | [`eda/reports/training_summary.json`](../eda/reports/training_summary.json) |
+| Versiones de modelo y promociones | Tabla `model_versions` en Supabase |
+| Bitácora de ingestas | Tabla `collector_runs` |
+| Predicciones emitidas y recibo | Tablas `predictions` y `submissions` |
+| Corridas automáticas | GitHub Actions del repositorio |
+
+---
+
+## Qué falta
+
+- **Fase 5 (monitoreo, drift y reentrenamiento):** requiere ciclos reales
+  evaluados para tener algo que medir. El esquema ya tiene las tablas
+  (`prediction_evaluations`, `cycle_metrics`, `drift_signals`).
+- **Informe final:** este documento es su base; falta la síntesis y la
+  reflexión de cierre.
+- **Bonos no abordados:** dashboard en Vercel, MLflow, estrategia de rollback.
+
+---
+
+## Verificaciones hechas sobre el sistema
+
+Registradas porque la guía valora poder demostrar el estado, no afirmarlo:
+
+- Integridad: 51.840 observaciones = 12 estaciones × 4.320 períodos, sin
+  duplicados ni valores negativos.
+- Idempotencia: ejecuciones repetidas del collector y de la migración no
+  alteran los conteos.
+- Seguridad: la llave pública lee (HTTP 200) y no puede escribir (HTTP 401);
+  cero alertas del linter de seguridad de Supabase; ningún secreto en el
+  historial del repositorio.
+- Reproducibilidad: el artefacto del champion se descarga desde Storage y
+  vuelve a predecir en un entorno limpio (así opera GitHub Actions).
+- Pruebas: 19 tests automatizados en CI, incluidos casos de regresión de cada
+  error descrito arriba.
