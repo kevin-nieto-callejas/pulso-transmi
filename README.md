@@ -108,11 +108,12 @@ esperadas → Inferencia y submission" de la guía:
    igual, lo imprime, y se detiene explícitamente en vez de fallar — está
    en modo "listo, esperando la key", no en modo error.
 
-Probado con `httpx.MockTransport` (`tests/test_infer.py`, 9 tests): el
+Probado con `httpx.MockTransport` (`tests/test_infer.py`, 11 tests): el
 camino "sin ciclo abierto", el armado del batch (horizonte correcto por
 target, valores recortados a `[0, 100000]` como exige el contrato,
-estación desconocida levanta error), la llave de idempotencia estable y
-la forma exacta del payload de `SubmissionInput`.
+estación desconocida levanta error), la llave de idempotencia estable, la
+detección de "este ciclo ya fue entregado" y la forma exacta del payload
+de `SubmissionInput`. En total el repo corre 17 tests en CI.
 
 Automatizado vía `.github/workflows/inference.yml`. Los minutos son una
 recomendación operacional: la decisión real siempre la toma `src/infer.py`
