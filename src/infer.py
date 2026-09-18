@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -235,9 +236,58 @@ def store_predictions_and_submission(
         )
 
 
+def already_submitted(client: httpx.Client, supabase_url: str, cycle_id: str, version_id: str) -> bool:
+    """¿Ya entregamos este ciclo con este mismo modelo?
+
+    Protege contra corridas solapadas: el cron dispara varias veces dentro
+    de la misma ventana de 25 minutos a proposito (GitHub descarta corridas
+    programadas bajo carga, asi que se pide redundancia), y no tiene sentido
+    volver a armar y reenviar un batch que la API ya acepto.
+    """
+    response = client.get(
+        f"{supabase_url}/rest/v1/submissions",
+        headers=supabase_headers(),
+        params={
+            "cycle_id": f"eq.{cycle_id}", "model_version_id": f"eq.{version_id}",
+            "accepted": "is.true", "select": "submission_id", "limit": 1,
+        },
+    )
+    response.raise_for_status()
+    return bool(response.json())
+
+
 def main() -> None:
     supabase_url = os.environ["SUPABASE_URL"].rstrip("/")
 
+    # Una sola corrida puede cubrir varios minutos de la ventana del ciclo:
+    # GitHub Actions retrasa y descarta corridas programadas bajo carga, asi
+    # que el workflow arranca seguido Y cada corrida vigila un rato. La guia
+    # lo anticipa: "GitHub Actions solo despierta el proceso: la decision
+    # final siempre se toma consultando el estado que devuelve la API".
+    poll_minutes = float(os.environ.get("PULSO_POLL_MINUTES", "0"))
+    poll_interval = float(os.environ.get("PULSO_POLL_INTERVAL_SECONDS", "120"))
+    deadline = time.monotonic() + poll_minutes * 60
+
+    while True:
+        try:
+            status = run_once(supabase_url)
+        except Exception as exc:
+            # Un fallo pasajero (red, 5xx de la API) no debe quemar el resto
+            # de la ventana de vigilancia: se registra y se reintenta. Si ya
+            # no queda tiempo, se propaga para que la corrida quede marcada
+            # como fallida en Actions en vez de fingir exito.
+            if time.monotonic() >= deadline:
+                raise
+            print(f"Error en el intento ({type(exc).__name__}: {exc}). Se reintenta dentro de la ventana.")
+            status = "error"
+
+        if status not in ("no_cycle", "error") or time.monotonic() >= deadline:
+            return
+        print(f"Reintentando en {poll_interval:.0f}s (quedan {(deadline - time.monotonic()) / 60:.1f} min de vigilancia)...")
+        time.sleep(poll_interval)
+
+
+def run_once(supabase_url: str) -> str:
     with httpx.Client(timeout=60.0) as client:
         clock = client.get(f"{API_URL}/v1/clock").json()
         print(f"Reloj: {clock}")
@@ -245,13 +295,17 @@ def main() -> None:
         cycle = get_current_cycle(client)
         if cycle is None:
             print("Sin ciclo abierto. Termina sin error (comportamiento esperado por la guia).")
-            return
+            return "no_cycle"
 
         data_cutoff = pd.Timestamp(cycle["data_cutoff"])
         targets = parse_targets(cycle)
         print(f"Ciclo abierto: {cycle['cycle_id']} | data_cutoff={data_cutoff} | {len(targets)} targets")
 
         champion = get_champion()
+        if already_submitted(client, supabase_url, cycle["cycle_id"], champion["version_id"]):
+            print(f"Este ciclo ya fue entregado con {champion['version_id']}. No se reenvia.")
+            return "already_submitted"
+
         bundle = load_model_from_storage(champion["artifact_location"])
         model, feature_columns = bundle["model"], bundle["feature_columns"]
 
@@ -271,19 +325,20 @@ def main() -> None:
                 "El batch quedo armado y validado localmente, pero NO se envia."
             )
             print(json.dumps(payload, indent=2, default=str)[:2000])
-            return
+            return "no_api_key"
 
         response = submit(client, api_key, idempotency_key, payload)
         if response.status_code >= 300:
             print(f"Submission RECHAZADA: {response.status_code} {response.text[:500]}")
             store_predictions_and_submission(client, supabase_url, cycle, champion, predictions, None, {})
-            return
+            return "rejected"
 
         receipt = response.json()
         submission_id = receipt.get("submission_id")
         print(f"Submission ACEPTADA: {submission_id}")
         receipt["_idempotency_key"] = idempotency_key
         store_predictions_and_submission(client, supabase_url, cycle, champion, predictions, submission_id, receipt)
+        return "submitted"
 
 
 if __name__ == "__main__":

@@ -105,6 +105,33 @@ def test_make_idempotency_key_is_stable_per_cycle_and_model() -> None:
     assert 8 <= len(key1) <= 128
 
 
+def test_already_submitted_detects_existing_accepted_submission(monkeypatch) -> None:
+    """Corridas solapadas (el cron dispara cada 10 min a proposito, porque
+    GitHub descarta corridas) no deben rearmar ni reenviar un ciclo que la
+    API ya acepto."""
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "fake-key")
+    captured = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["params"] = dict(request.url.params)
+        return httpx.Response(200, json=[{"submission_id": "sub_123"}])
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert infer.already_submitted(client, "https://sb.test", "cyc_abc", "model-v1") is True
+    # El filtro debe ser por ciclo Y modelo Y aceptada: si se filtrara solo
+    # por ciclo, un reentrenamiento a mitad de ventana nunca podria entregar.
+    assert captured["params"]["cycle_id"] == "eq.cyc_abc"
+    assert captured["params"]["model_version_id"] == "eq.model-v1"
+    assert captured["params"]["accepted"] == "is.true"
+
+
+def test_already_submitted_false_when_no_rows(monkeypatch) -> None:
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "fake-key")
+
+    client = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=[])))
+    assert infer.already_submitted(client, "https://sb.test", "cyc_abc", "model-v1") is False
+
+
 def test_make_submission_payload_shape() -> None:
     cycle = {"cycle_id": "cyc_abc123", "data_cutoff": "2026-09-20T10:00:00+00:00"}
     champion = {"version_id": "xgboost_station-20260920T100000Z", "created_at": "2026-09-17T04:29:28+00:00",

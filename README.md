@@ -70,10 +70,14 @@ entrega el profesor al activar el reloj):
   el collector conserva el cursor con el que pidió esa última página en
   vez de arriesgarse a perderlo — el peor caso es repetir una página
   (inofensivo, gracias al upsert idempotente), nunca perder el progreso.
-- Automatizado vía `.github/workflows/collector.yml`, cron cada 30
-  minutos (`*/30 * * * *`, UTC) — exactamente la cadencia que pide la
-  guía en "Automatizaciones esperadas". También se puede disparar a mano
-  desde la pestaña Actions (`workflow_dispatch`).
+- Automatizado vía `.github/workflows/collector.yml`, cron en los minutos
+  `8,23,38,53` (UTC). La guía pide cada 30 minutos; se dispara cada 15 y
+  fuera de `:00`/`:30` porque GitHub descarta corridas programadas bajo
+  carga (ver "Hallazgo operacional" más abajo), así la cadencia *efectiva*
+  se acerca a los 30 minutos pedidos. Perder una corrida no pierde datos
+  —el cursor es incremental y el upsert idempotente, la siguiente corrida
+  recupera el atraso— pero sí deja huecos en la bitácora. También se puede
+  disparar a mano desde la pestaña Actions (`workflow_dispatch`).
 
 ```bash
 python src/ingest.py
@@ -110,11 +114,38 @@ target, valores recortados a `[0, 100000]` como exige el contrato,
 estación desconocida levanta error), la llave de idempotencia estable y
 la forma exacta del payload de `SubmissionInput`.
 
-Automatizado vía `.github/workflows/inference.yml`, cron en los minutos
-`7,37` de cada hora — la rutina que sugiere la guía (cerca del minuto 07
-para inferir/enviar, cerca del 37 para el siguiente lote). Los minutos son
-una recomendación operacional: la decisión real siempre la toma
-`src/infer.py` consultando el estado de la API, nunca el cron por sí solo.
+Automatizado vía `.github/workflows/inference.yml`. Los minutos son una
+recomendación operacional: la decisión real siempre la toma `src/infer.py`
+consultando el estado de la API, nunca el cron por sí solo.
+
+### Hallazgo operacional: GitHub descarta corridas programadas
+
+La guía advierte que "los workflows programados pueden presentar
+retrasos". Medido en este repo el 18/09, el problema resultó ser peor que
+un retraso: de ~28 corridas programadas esperadas en 7 horas, **solo se
+ejecutaron 2**. GitHub no encola las corridas atrasadas — las descarta
+bajo carga, y los minutos `:00` y `:30` (donde estaba el cron original del
+collector) son los más congestionados de la plataforma. No es un problema
+de cuota: el repo es público, con minutos ilimitados.
+
+Durante la competencia eso sería grave: perder la corrida de un ciclo
+significa perder su ventana de 25 minutos, o sea 48 predicciones en cero.
+Es exactamente la tercera señal que describe la guía ("falla operacional:
+el pipeline no produjo o envió resultados — corregir la operación antes de
+culpar al modelo"). Mitigación en dos capas:
+
+1. **Más intentos, en minutos menos congestionados.** Inferencia cada 10
+   min (`3,13,23,33,43,53`), collector cada 15 (`8,23,38,53`) — nunca en
+   `:00` ni `:30`.
+2. **Cada corrida vigila 8 minutos más** (`PULSO_POLL_MINUTES`), revisando
+   la API cada 2 minutos, para que una sola corrida que sí arranque cubra
+   buena parte de la ventana aunque las demás se descarten. Un fallo
+   pasajero de red dentro de la ventana se reintenta en vez de abortar la
+   corrida completa.
+
+Reenviar no duplica ni gasta intentos: la llave de idempotencia es estable
+por (ciclo, modelo) y, antes de rearmar el batch, `src/infer.py` consulta
+en Supabase si ese ciclo ya fue entregado con ese mismo modelo.
 
 ```bash
 python src/infer.py

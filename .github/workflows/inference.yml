@@ -1,21 +1,30 @@
 name: inference
 
-# La guia sugiere consultar el ciclo cerca del minuto 07 (para inferir y
-# enviar si esta abierto) y cerca del minuto 37 (para el siguiente lote). Los
-# minutos son una recomendacion operacional, no una fuente de verdad: la
-# decision real siempre la toma src/infer.py consultando /v1/clock y
-# /v1/forecast-cycles/current, y termina sin error si no hay ciclo abierto -
-# por eso este workflow puede (y debe) correr ya mismo, aunque el reloj siga
-# en `waiting`.
+# La guia sugiere consultar el ciclo cerca del minuto 07 y del 37, pero
+# advierte que "los workflows programados pueden presentar retrasos". Medido
+# en este repo: GitHub NO solo retrasa, sino que DESCARTA la mayoria de las
+# corridas programadas bajo carga (2 corridas reales de ~28 esperadas en 7h).
+# Perder una corrida durante la competencia = perder la ventana de entrega de
+# 25 minutos de ese ciclo, o sea 48 predicciones en cero.
+#
+# Mitigacion en dos capas:
+#   1. Disparar cada 10 minutos en minutos "impares" (nunca :00 ni :30, los
+#      mas congestionados de GitHub) para que sobren oportunidades.
+#   2. Cada corrida vigila 8 minutos mas (PULSO_POLL_MINUTES), revisando cada
+#      2 minutos, de modo que una sola corrida que si arranque cubra buena
+#      parte de la ventana aunque las siguientes se descarten.
+# Reenviar no duplica: la llave de idempotencia es estable por ciclo+modelo y
+# src/infer.py ademas consulta si ese ciclo ya fue entregado.
 on:
   schedule:
-    - cron: "7,37 * * * *"
+    - cron: "3,13,23,33,43,53 * * * *"
   workflow_dispatch: {}
 
 jobs:
   infer:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 8 min de vigilancia + instalacion de dependencias + margen.
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -30,3 +39,5 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           PULSO_API_KEY: ${{ secrets.PULSO_API_KEY }}
+          PULSO_POLL_MINUTES: "8"
+          PULSO_POLL_INTERVAL_SECONDS: "120"

@@ -5,9 +5,17 @@ name: collector
 # reloj en `waiting`): src/ingest.py deja evidencia en collector_runs incluso
 # sin novedades, y el cron de GitHub va en UTC (nunca se fabrica un cursor a
 # partir de la hora local).
+#
+# Se dispara cada 15 minutos en vez de cada 30, y nunca en :00 ni :30: GitHub
+# descarta corridas programadas bajo carga (medido aqui: 1 corrida real de 14
+# esperadas en 7h) y esos dos minutos son los mas congestionados. Con el doble
+# de intentos, la cadencia efectiva se acerca a los 30 minutos que pide la
+# guia. Perder una corrida no pierde datos -el cursor es incremental y el
+# upsert idempotente, asi que la siguiente corrida recupera el atraso-, pero
+# si deja huecos en la bitacora.
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "8,23,38,53 * * * *"
   workflow_dispatch: {}
 
 jobs:
