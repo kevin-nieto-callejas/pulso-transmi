@@ -40,17 +40,33 @@ from features import wape_accuracy  # noqa: E402
 
 # --- Umbrales, con su justificacion ----------------------------------------
 
-# Cuanto puede caer el accuracy antes de considerarlo degradacion real.
-# Origen: el candidato `rf_no_weekly_lag` existe para medir que pasa si la
-# senal de estacionalidad semanal deja de ser confiable, y esa perdida medida
-# fue de 2.11 puntos. Es decir: 2 puntos es la magnitud que tendria un drift
-# que nos rompa una feature central. Por debajo de eso es ruido de ciclo.
-CAIDA_SIGNIFICATIVA = 2.0
+# Cuantas desviaciones tipicas por debajo de su propio historial debe caer el
+# accuracy para considerarlo degradacion.
+#
+# Medido sobre 2.229 ciclos evaluados fuera de muestra:
+#   - accuracy por ciclo suelto: media 85.74, desviacion 2.60 (min 57.79)
+#   - promedio movil de 24 ciclos: desviacion 1.51
+#
+# Un umbral fijo en puntos no sirve: 2 puntos sobre ventanas de 24 ciclos son
+# apenas 1.3 desviaciones, es decir alarma por azar una de cada diez veces.
+# Por eso el umbral se expresa en desviaciones y se calcula contra la
+# variabilidad REAL observada, no contra una cifra elegida de antemano.
+SIGMAS_PARA_ALARMA = 3.0
 
-# Cuantos ciclos seguidos degradados antes de actuar. Con ciclos de una hora,
-# 3 ciclos son 3 horas: suficiente para descartar una hora punta rara o un
-# evento puntual, y poco para no perder medio dia reaccionando tarde.
-CICLOS_DE_PERSISTENCIA = 3
+# Ciclos por ventana. Con ciclos de una hora, 24 cubren un dia completo -la
+# lectura rolling 24 h que pide la guia- y reducen el ruido de 2.60 a 1.51.
+CICLOS_POR_VENTANA = 24
+
+# Ventanas necesarias para tener un historial de referencia. Sin base propia
+# no se puede hablar de degradacion: haria falta saber contra que.
+VENTANAS_DE_REFERENCIA = 24
+
+# Se conserva como referencia documental: es la caida medida al quitarle al
+# modelo la estacionalidad semanal, o sea la magnitud de un drift que rompe
+# una feature central. Queda por DEBAJO del ruido de una ventana de 24 h
+# (3 sigmas = 4.5 puntos), asi que este detector no la vera; hacen falta
+# ventanas mas largas para eso. Es una limitacion conocida, no un descuido.
+CAIDA_POR_PERDER_LAG_SEMANAL = 2.11
 
 # Cambio en la demanda media de una estacion que amerita mirarla. Origen: en
 # el historico, la desviacion tipica entre estaciones es grande, asi que se
@@ -133,27 +149,29 @@ def accuracy_movil(historial: pd.DataFrame, horas: int = 24) -> float | None:
 
 # --- Paso 3: las tres senales ----------------------------------------------
 
-def detectar_degradacion(historial: pd.DataFrame, metrica_esperada: float) -> Senal | None:
-    """Performance drift, comparando SIEMPRE ventanas de 24 h completas.
+def detectar_degradacion(historial: pd.DataFrame, metrica_esperada: float | None = None) -> Senal | None:
+    """Performance drift: el accuracy cae respecto a SU PROPIO historial.
 
-    Corregido tras un simulacro (`src/simulate_cycle.py`) que midio ciclos
-    reales a distintas horas del dia:
+    Dos correcciones sobre la version anterior, ambas nacidas de medir en vez
+    de suponer (2.229 ciclos evaluados fuera de muestra):
 
-        09:45 mañana  85.73     21:45 noche      80.05
-        15:45 tarde   85.47     03:45 madrugada  74.99
-                                22:45 noche      72.17
+    1. **La referencia no puede ser la metrica de validacion.** Esa cifra
+       (86.61) se calcula agrupando todas las predicciones de la partición;
+       el accuracy de un ciclo suelto promedia 85.74. Son formas distintas de
+       agregar lo mismo, asi que comparar una contra otra mete un sesgo de
+       0.87 puntos que hace sobre-disparar la alarma. Se compara la ventana
+       reciente contra la mediana de las ventanas anteriores: drift es
+       "cambio respecto a como venia", no "difiere del numero de
+       entrenamiento".
 
-    Trece puntos de diferencia sin que nada falle: de madrugada la demanda es
-    baja y WAPE castiga mucho los errores sobre valores pequenos. La version
-    anterior comparaba los ultimos 3 ciclos contra la metrica de validacion y
-    habria declarado degradacion TODAS LAS NOCHES, con riesgo de disparar un
-    reentrenamiento por nada.
+    2. **El umbral debe salir de la variabilidad real.** Un ciclo suelto
+       tiene desviacion 2.60 (llega a bajar a 57.79 sin que nada falle);
+       promediar 24 la baja a 1.51. Un umbral fijo de 2 puntos sobre esa
+       ventana son 1.3 desviaciones: alarma por azar una de cada diez veces.
+       Aqui el umbral son 3 desviaciones medidas sobre el propio historial.
 
-    La ventana movil de 24 h -la que pide la guia- resuelve el problema
-    porque cubre todas las horas del dia, igual que la validacion con la que
-    se compara. Por eso tambien se exige que la ventana este razonablemente
-    completa antes de juzgar: media ventana vuelve a ser una muestra sesgada
-    por la hora.
+    `metrica_esperada` se acepta solo para compatibilidad; no se usa como
+    referencia por lo explicado en (1).
     """
     if historial.empty or "station_id" not in historial.columns:
         return None
@@ -164,33 +182,40 @@ def detectar_degradacion(historial: pd.DataFrame, metrica_esperada: float) -> Se
     totales["computed_at"] = pd.to_datetime(totales["computed_at"], utc=True)
     totales = totales.sort_values("computed_at")
 
-    ahora = pd.Timestamp.now(tz="UTC")
-    ventanas = []
-    for i in range(CICLOS_DE_PERSISTENCIA):
-        fin = ahora - pd.Timedelta(hours=i)
-        inicio = fin - pd.Timedelta(hours=24)
-        ventana = totales[(totales["computed_at"] > inicio) & (totales["computed_at"] <= fin)]
-        # Con ciclos de una hora, 24 h son ~24 ciclos. Se exige al menos la
-        # mitad para no comparar una franja horaria suelta contra un promedio
-        # de dia completo.
-        if len(ventana) < 12:
-            return None
-        ventanas.append(float(ventana["accuracy"].mean()))
+    # Hace falta la ventana actual mas suficientes anteriores para saber cual
+    # es el comportamiento normal de ESTE modelo en ESTA competencia.
+    minimo = CICLOS_POR_VENTANA + VENTANAS_DE_REFERENCIA
+    if len(totales) < minimo:
+        return None
 
-    caidas = [metrica_esperada - v for v in ventanas]
-    if all(c > CAIDA_SIGNIFICATIVA for c in caidas):
-        promedio = sum(ventanas) / len(ventanas)
-        return Senal(
-            tipo="performance",
-            descripcion=(
-                f"La ventana movil de 24 h lleva {CICLOS_DE_PERSISTENCIA} lecturas seguidas por "
-                f"debajo de lo esperado: {promedio:.2f} frente a {metrica_esperada:.2f} de la "
-                f"validacion (caida media de {sum(caidas)/len(caidas):.2f} puntos)."
-            ),
-            valor=promedio, umbral=metrica_esperada - CAIDA_SIGNIFICATIVA,
-            accion="Investigar antes de reentrenar: revisar si la caida se concentra en pocas estaciones u horizontes.",
-        )
-    return None
+    # Mediana y no promedio: un solo ciclo catastrofico -medido, bajan hasta
+    # 57.79 sin que nada falle- arrastra el promedio de 24 mas de un punto,
+    # suficiente para inventar una alarma. La mediana de 24 valores ni se
+    # entera de uno suelto, pero se mueve entera si la caida es sostenida,
+    # que es justo lo que se quiere detectar.
+    ventanas = totales["accuracy"].rolling(CICLOS_POR_VENTANA).median().dropna()
+    actual = float(ventanas.iloc[-1])
+    referencia = ventanas.iloc[:-1]
+    base = float(referencia.median())
+    sigma = float(referencia.std())
+
+    if not sigma or pd.isna(sigma):
+        return None
+
+    umbral = base - SIGMAS_PARA_ALARMA * sigma
+    if actual >= umbral:
+        return None
+
+    return Senal(
+        tipo="performance",
+        descripcion=(
+            f"El accuracy tipico de las ultimas {CICLOS_POR_VENTANA} horas cayo a {actual:.2f}, "
+            f"{(base - actual) / sigma:.1f} desviaciones por debajo de su propio historial "
+            f"(base {base:.2f}, desviacion {sigma:.2f})."
+        ),
+        valor=actual, umbral=umbral,
+        accion="Investigar antes de reentrenar: revisar si la caida se concentra en pocas estaciones u horizontes.",
+    )
 
 
 def detectar_cambio_en_datos(reciente: pd.DataFrame, referencia: pd.DataFrame) -> list[Senal]:

@@ -96,9 +96,10 @@ señal fallara: **2.11 puntos**. Ese número dejó de ser curiosidad cuando hubo
 que fijar el umbral de drift — es la magnitud de una degradación que rompe una
 feature central, así que por debajo de eso es ruido.
 
-**Exigir persistencia antes de reaccionar.** El monitoreo no actúa ante un
-ciclo malo; pide tres seguidos. Un aguacero o una hora punta atípica no
-justifican reentrenar.
+**Exigir evidencia antes de reaccionar.** El monitoreo no actúa ante un ciclo
+malo. Mira la mediana de las últimas 24 horas y la compara con la de su propio
+historial: un aguacero, una hora punta atípica o un ciclo con mala suerte no
+mueven una mediana de 24 valores, pero una degradación sostenida sí.
 
 **Separar falla operacional de falla del modelo.** Si hay ciclos sin entregar,
 el sistema dice "arregla el pipeline" en vez de proponer reentrenar. Un
@@ -109,7 +110,7 @@ métrica y su artefacto. Eso hizo posible el rollback, que se probó de verdad:
 volver atrás, verificar que el sistema servía el modelo anterior, y regresar.
 
 **Escribir pruebas de los errores encontrados.** Cada fallo dejó un test de
-regresión. Son 30; varios existen porque algo se rompió primero.
+regresión. Son 32; varios existen porque algo se rompió primero.
 
 ---
 
@@ -157,42 +158,50 @@ corrida contra un ciclo real.
 **Las tablas vacías vuelven sin columnas.** El monitoreo reventaba justo en el
 estado normal previo a la competencia.
 
-### 4.4. El monitoreo habría dado una falsa alarma cada noche
+### 4.4. El monitoreo se calibró contra el número equivocado
 
-El hallazgo más útil del proyecto salió de un simulacro hecho en el último
-momento: crear un ciclo con 48 targets anclado en el pasado —para que los
-valores reales ya existieran— y hacer correr el camino completo.
+Un simulacro de ciclo completo —creado para ejercitar el pipeline de
+evaluación, que nunca había escrito una fila real— midió 72.17 en un ciclo
+nocturno frente a 85.73 en uno de mediodía. La conclusión inmediata fue que
+el modelo rendía peor de noche y que el detector de drift daría falsas
+alarmas cada madrugada.
 
-Sirvió para lo que se buscaba (el pipeline de evaluación nunca había escrito
-una fila real), pero además destapó algo que ninguna prueba unitaria podía
-ver. Midiendo ciclos reales a distintas horas del día:
+**Esa conclusión era falsa, y lo fue por medir poco.** Estaba sacada de cinco
+ciclos. Al repetir la medición sobre **2.229 ciclos** evaluados fuera de
+muestra, el efecto de la hora resultó ser de apenas un punto:
 
-| Hora (Bogotá) | Accuracy del ciclo |
+| Franja | Accuracy |
 |---|---:|
-| 09:45 mañana | 85.73 |
-| 15:45 tarde | 85.47 |
-| 21:45 noche | 80.05 |
-| 03:45 madrugada | 74.99 |
-| 22:45 noche | **72.17** |
+| Madrugada (0-5 h) | 85.10 |
+| Mañana (6-11 h) | 86.11 |
+| Tarde (12-17 h) | 86.29 |
+| Noche (18-23 h) | 85.45 |
 
-**Trece puntos de diferencia sin que nada falle.** No es que el modelo se
-rompa de noche: con poca gente, WAPE castiga desproporcionadamente los
-errores pequeños. Equivocarse por cinco pasajeros sobre veinte pesa como
-equivocarse por cien sobre cuatrocientos.
+Lo que sí existe es **ruido de ciclo**: la desviación entre ciclos es 2.60 y
+el peor baja a 57.79 sin que nada falle, porque un ciclo se evalúa con apenas
+cuatro puntos por estación. El 72.17 no era un patrón nocturno: era el 0.6%
+peor, por azar.
 
-El detector de degradación comparaba los últimos tres **ciclos** contra la
-métrica de validación (86.61). De madrugada eso son catorce puntos por
-debajo, así que habría declarado degradación **todas las noches**, y con
-datos nuevos suficientes habría decidido reentrenar sin que ocurriera nada.
+El episodio dejó dos correcciones reales en el detector:
 
-La corrección fue comparar ventanas móviles de 24 horas —justo la lectura
-que la guía pide— porque cubren todas las horas del día, igual que la
-métrica de validación contra la que se comparan. Y no emitir juicio con
-menos de media ventana, porque media ventana vuelve a ser una muestra
-sesgada por la franja horaria.
+**El punto de comparación estaba mal.** Se comparaba contra la métrica de
+validación (86.61), que agrupa todas las predicciones de la partición,
+mientras que el accuracy de un ciclo promedia 85.74. Son dos formas de
+agregar lo mismo; compararlas mete un sesgo de 0.87 puntos que hace
+sobre-disparar. Ahora se compara la ventana reciente contra la mediana de sus
+propias ventanas anteriores: drift es cambio respecto a como venía, no
+diferencia contra un número de entrenamiento.
 
-La lección no es sobre el umbral: es que **WAPE no es una métrica neutra**.
-Depende del volumen, y eso cambia cómo hay que monitorearla.
+**El umbral estaba por debajo del ruido.** Dos puntos sobre una ventana de 24
+ciclos son 1.3 desviaciones: alarma por azar una de cada diez veces. El
+umbral pasó a expresarse en desviaciones medidas sobre el propio historial
+(tres), y la ventana usa mediana en vez de promedio, para que un solo ciclo
+catastrófico no la arrastre.
+
+Queda una limitación conocida y documentada: con ventanas de 24 horas, tres
+desviaciones son 4.5 puntos, mayor que los 2.11 que costaría perder la
+estacionalidad semanal. Ese tamaño de degradación no lo vería este detector;
+haría falta una ventana más larga, a cambio de reaccionar más tarde.
 
 ### 4.5. Una intuición que resultó falsa
 
@@ -239,8 +248,14 @@ existe únicamente porque ese error ya se había cometido antes en el proyecto.
   Sí se validó, en cambio, que **no disparen cuando no deben**: el simulacro
   confirmó que la variación normal por hora del día no los activa.
 - **El accuracy de un ciclo suelto no es comparable con el de validación.**
-  Varía hasta trece puntos según la hora. Cualquier lectura por ciclo debe
-  interpretarse contra su franja horaria, no contra el 86.61.
+  El primero promedia 85.74 con desviación 2.60 (mínimo medido: 57.79); el
+  segundo, 86.61, se calcula agrupando toda la partición. Un ciclo malo
+  aislado no dice nada.
+- **Degradaciones menores de ~4.5 puntos no las ve el detector** con ventanas
+  de 24 horas, incluida la de 2.11 que costaría perder la estacionalidad
+  semanal. Ampliar la ventana la haría visible a cambio de reaccionar más
+  tarde; se dejó así porque reaccionar tarde a un drift pequeño es preferible
+  a reaccionar en falso a uno inexistente.
 - **La dependencia de `lag_672` sigue siendo el riesgo principal.** Cuesta 2.11
   puntos si esa señal falla, y es exactamente el tipo de patrón que un cambio
   de comportamiento urbano rompería.

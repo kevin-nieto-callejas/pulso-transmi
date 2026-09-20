@@ -163,40 +163,43 @@ Reenviar no duplica ni gasta intentos: la llave de idempotencia es estable por
 (ciclo, modelo) y, antes de rearmar el batch, se consulta si ese ciclo ya fue
 entregado.
 
-### 5. El monitoreo habría dado una falsa alarma cada madrugada
+### 5. El monitoreo se calibró contra el número equivocado
 
-**Síntoma:** ninguno. Todo en verde: 30 pruebas pasando y el monitoreo
-corriendo limpio contra la base real.
+**Síntoma:** ninguno. Todo en verde.
 
-**Cómo se detectó:** un simulacro de ciclo completo (`src/simulate_cycle.py`),
-hecho para otra cosa —el pipeline de evaluación nunca había escrito una fila
-real en `prediction_evaluations` ni en `cycle_metrics`, y la ronda de práctica
-solo había probado 12 targets a un mismo horizonte—. Al repetirlo con el ancla
-en distintas horas del día apareció el patrón.
+**Cómo se detectó:** un simulacro de ciclo completo (`src/simulate_cycle.py`)
+creado para otra cosa —el pipeline de evaluación nunca había escrito una fila
+real en `prediction_evaluations` ni en `cycle_metrics`—.
 
-**Problema real:** el accuracy de un ciclo varía **trece puntos según la hora**
-sin que nada falle.
+**Primera conclusión, equivocada:** el simulacro midió 72.17 en un ciclo
+nocturno contra 85.73 en uno de mediodía, y se concluyó que el modelo rendía
+peor de noche. Estaba sacado de **cinco mediciones**.
 
-| Hora (Bogotá) | Accuracy |
-|---|---:|
-| 09:45 mañana | 85.73 |
-| 15:45 tarde | 85.47 |
-| 21:45 noche | 80.05 |
-| 03:45 madrugada | 74.99 |
-| 22:45 noche | 72.17 |
+**Lo que dicen 2.229 ciclos:** el efecto de la hora es de un punto
+(madrugada 85.10, tarde 86.29). Lo que existe es ruido de ciclo: desviación
+2.60, con mínimos de 57.79, porque cada ciclo se evalúa con cuatro puntos por
+estación. El 72.17 era el 0.6% peor por azar, no un patrón.
 
-Con poca gente, WAPE castiga desproporcionadamente los errores pequeños. El
-detector comparaba los últimos tres **ciclos** contra la métrica de validación
-(86.61), así que de madrugada veía catorce puntos de caída y habría declarado
-degradación todas las noches —con riesgo de decidir "reentrenar" sin motivo.
+**Problemas reales que sí destapó:**
 
-**Solución:** comparar ventanas móviles de 24 horas, que es la lectura que
-pide la guía y que cubre todas las horas igual que la métrica de validación.
-No se emite juicio con menos de media ventana. Dos tests de regresión: la
-madrugada no dispara, una caída del día completo sí.
+1. *Punto de comparación equivocado.* Se comparaba contra la métrica de
+   validación (86.61), que agrupa todas las predicciones, cuando el accuracy
+   por ciclo promedia 85.74. Sesgo de 0.87 puntos hacia la falsa alarma.
+2. *Umbral por debajo del ruido.* Dos puntos sobre una ventana de 24 ciclos
+   son 1.3 desviaciones: alarma por azar el 10% de las veces.
 
-**Lo que enseñó:** WAPE no es una métrica neutra. Depende del volumen, y eso
-cambia cómo hay que monitorearla.
+**Solución:** comparar la ventana reciente contra la mediana de sus propias
+ventanas anteriores, con umbral de tres desviaciones medidas sobre ese mismo
+historial, y usando mediana en vez de promedio para que un ciclo catastrófico
+no arrastre la ventana.
+
+**Limitación documentada:** tres desviaciones sobre 24 horas son 4.5 puntos,
+más que los 2.11 que cuesta perder la estacionalidad semanal. Esa magnitud de
+degradación no la ve este detector.
+
+**Lo que enseñó:** dos cosas. Que un accuracy por ciclo y uno de validación
+no son comparables aunque se llamen igual. Y que cinco mediciones no son una
+conclusión — el propio error de interpretación se corrigió midiendo más.
 
 ### 6. Otros arreglos menores
 

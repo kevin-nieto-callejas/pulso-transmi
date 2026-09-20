@@ -66,45 +66,59 @@ def test_el_accuracy_del_ciclo_no_pondera_por_volumen() -> None:
     assert total == 75.0  # promedio simple; ponderado por volumen daria ~99
 
 
-def test_un_solo_ciclo_malo_no_dispara_alarma() -> None:
-    """Una hora punta atipica, un partido o un aguacero producen un ciclo
-    malo. Reentrenar por eso seria reaccionar al ruido."""
-    historial = _historial(_dia_completo(86.6)[:-1] + [70.0])
+def _historial_normal(n=60, media=85.74, sigma=2.60, semilla=7):
+    """Historial con la variabilidad REAL medida sobre 2.229 ciclos.
 
-    assert evaluate.detectar_degradacion(historial, metrica_esperada=86.61) is None
-
-
-def test_la_madrugada_no_puede_disparar_falsa_alarma() -> None:
-    """Regresion del hallazgo mas importante del simulacro: medido contra
-    datos reales, un ciclo de madrugada da ~72 y uno de mediodia ~85, sin que
-    nada falle. Comparar los ultimos 3 ciclos contra la validacion declaraba
-    degradacion TODAS LAS NOCHES. La ventana de 24 h cubre todas las horas,
-    asi que es comparable con la metrica de validacion."""
-    dia = _dia_completo(86.6)
-    # Las tres ultimas lecturas son de madrugada: muy por debajo de 86.61.
-    dia[-3:] = [72.2, 74.9, 73.5]
-    historial = _historial(dia)
-
-    assert evaluate.detectar_degradacion(historial, metrica_esperada=86.61) is None
+    Los ciclos NO son independientes: arrastran el estado del dia (una tarde
+    dificil lo es entera). Generarlos independientes daba ventanas de 24 con
+    desviacion 0.19, cuando la medida de verdad es 1.51 — un test con datos
+    demasiado limpios habria dado por bueno un detector hipersensible.
+    """
+    import math
+    import random
+    rng = random.Random(semilla)
+    valores, arrastre = [], 0.0
+    for i in range(n):
+        arrastre = 0.75 * arrastre + rng.gauss(0, sigma * 0.55)   # memoria entre ciclos
+        ciclo_diario = 1.2 * math.sin(2 * math.pi * i / 24)        # franja horaria
+        valores.append(media + arrastre + ciclo_diario)
+    return _historial(valores)
 
 
-def test_degradacion_sostenida_si_dispara_alarma() -> None:
-    """Cuando cae el dia COMPLETO, no solo unas horas, si es degradacion."""
-    historial = _historial(_dia_completo(80.0))  # todo el dia 6 puntos abajo
+def test_un_ciclo_malo_aislado_no_dispara_alarma() -> None:
+    """Medido sobre 2.229 ciclos: uno suelto baja hasta 57.79 sin que nada
+    falle. El 2.2% queda por debajo de 80 solo por azar."""
+    hist = _historial_normal()
+    hist.loc[hist.index[-1], "accuracy"] = 57.79
 
-    senal = evaluate.detectar_degradacion(historial, metrica_esperada=86.61)
+    assert evaluate.detectar_degradacion(hist) is None
+
+
+def test_la_variacion_normal_no_dispara_alarma() -> None:
+    """Un historial con el ruido tipico no debe generar ninguna senal: si lo
+    hiciera, tendriamos alarmas constantes durante toda la competencia."""
+    for semilla in range(10):
+        hist = _historial_normal(semilla=semilla)
+        assert evaluate.detectar_degradacion(hist) is None, f"falsa alarma con semilla {semilla}"
+
+
+def test_caida_sostenida_si_dispara_alarma() -> None:
+    """Una caida real y mantenida -no un ciclo malo- si debe detectarse."""
+    hist = _historial_normal(n=80)
+    # Las ultimas 24 horas caen 6 puntos: mas de 3 desviaciones de la ventana.
+    hist.loc[hist.index[-24:], "accuracy"] = hist["accuracy"].iloc[-24:] - 6.0
+
+    senal = evaluate.detectar_degradacion(hist)
 
     assert senal is not None
     assert senal.tipo == "performance"
-    assert "24 h" in senal.descripcion
+    assert "desviaciones por debajo" in senal.descripcion
 
 
-def test_no_se_juzga_con_media_ventana() -> None:
-    """Con pocas horas evaluadas, la muestra esta sesgada por la franja
-    horaria que toco. Mejor no opinar que opinar mal."""
-    historial = _historial([72.0, 73.0, 71.5, 74.0])  # solo 4 ciclos
-
-    assert evaluate.detectar_degradacion(historial, metrica_esperada=86.61) is None
+def test_no_se_juzga_sin_historial_de_referencia() -> None:
+    """Drift es cambio respecto a como venia. Sin historial propio no hay
+    contra que comparar, y opinar seria inventar."""
+    assert evaluate.detectar_degradacion(_historial_normal(n=20)) is None
 
 
 def test_data_drift_compara_cada_estacion_contra_si_misma() -> None:
