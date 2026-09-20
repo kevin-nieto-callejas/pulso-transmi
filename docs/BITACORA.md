@@ -17,12 +17,15 @@ que avanza el proyecto, no al final.
 |---|---|
 | 1 · Comprender | Completa |
 | 2 · Construir la memoria | Completa y automatizada |
-| 3 · Experimentar | Completa (8 candidatos + baseline) |
-| 4 · Operar | Submission aceptada en la ronda de práctica |
-| 5 · Aprender del error | Pendiente (requiere ciclos reales) |
+| 3 · Experimentar | Completa (12 candidatos + baseline + 240 experimentos en MLflow) |
+| 4 · Operar | Submission aceptada; workflows entregando solos |
+| 5 · Aprender del error | Codigo completo y probado; falta evidencia con ciclos reales |
 
-**Modelo champion vigente:** `xgboost_station-20260918T044429Z` — accuracy 85.22
-(validación cruzada temporal, 4 horizontes).
+**Modelo champion vigente:** `ensamble_extendido-20260920T223526Z` — accuracy
+**86.61** (validación temporal de 5 cortes, 4 horizontes). Ensamble de
+LightGBM + XGBoost + CatBoost sobre 49 features.
+
+**Bonos:** los cinco de la guía están cubiertos.
 
 ---
 
@@ -52,6 +55,19 @@ que avanza el proyecto, no al final.
 - **Submission aceptada:** `sub_b64352e18de5486ead9478e66d57c523`, 12/12
   predicciones, `is_official: true`.
 - Vigilante del contrato del docente (`src/check_contract.py`).
+
+### 20 de septiembre — Fase 5, bonos y endurecimiento
+
+- El docente publicó el API 0.5.0 (rotación de llave y dashboard de cohorte);
+  revisado: no afecta ningún endpoint ni campo que usemos.
+- Ronda de mejora del modelo: 49 features —incluidos los pronósticos de clima
+  que la API entregaba y nunca se usaban—, LightGBM, CatBoost y un ensamble.
+  Champion nuevo con 86.61 frente a 85.22.
+- Monitoreo, drift y decisión de reentrenamiento (`src/evaluate.py`).
+- Estrategia de rollback (`src/rollback.py`), probada de punta a punta.
+- Dashboard desplegado: https://pulso-transmi-one.vercel.app
+- Simulacro de ciclo completo (`src/simulate_cycle.py`), que destapó el
+  problema del monitoreo descrito abajo.
 
 ---
 
@@ -147,7 +163,42 @@ Reenviar no duplica ni gasta intentos: la llave de idempotencia es estable por
 (ciclo, modelo) y, antes de rearmar el batch, se consulta si ese ciclo ya fue
 entregado.
 
-### 5. Otros arreglos menores
+### 5. El monitoreo habría dado una falsa alarma cada madrugada
+
+**Síntoma:** ninguno. Todo en verde: 30 pruebas pasando y el monitoreo
+corriendo limpio contra la base real.
+
+**Cómo se detectó:** un simulacro de ciclo completo (`src/simulate_cycle.py`),
+hecho para otra cosa —el pipeline de evaluación nunca había escrito una fila
+real en `prediction_evaluations` ni en `cycle_metrics`, y la ronda de práctica
+solo había probado 12 targets a un mismo horizonte—. Al repetirlo con el ancla
+en distintas horas del día apareció el patrón.
+
+**Problema real:** el accuracy de un ciclo varía **trece puntos según la hora**
+sin que nada falle.
+
+| Hora (Bogotá) | Accuracy |
+|---|---:|
+| 09:45 mañana | 85.73 |
+| 15:45 tarde | 85.47 |
+| 21:45 noche | 80.05 |
+| 03:45 madrugada | 74.99 |
+| 22:45 noche | 72.17 |
+
+Con poca gente, WAPE castiga desproporcionadamente los errores pequeños. El
+detector comparaba los últimos tres **ciclos** contra la métrica de validación
+(86.61), así que de madrugada veía catorce puntos de caída y habría declarado
+degradación todas las noches —con riesgo de decidir "reentrenar" sin motivo.
+
+**Solución:** comparar ventanas móviles de 24 horas, que es la lectura que
+pide la guía y que cubre todas las horas igual que la métrica de validación.
+No se emite juicio con menos de media ventana. Dos tests de regresión: la
+madrugada no dispara, una caída del día completo sí.
+
+**Lo que enseñó:** WAPE no es una métrica neutra. Depende del volumen, y eso
+cambia cómo hay que monitorearla.
+
+### 6. Otros arreglos menores
 
 - Índice único parcial `one_champion_only` para que la base impida a nivel
   físico tener dos champions simultáneos.
@@ -190,12 +241,17 @@ entregado.
 
 ## Qué falta
 
-- **Fase 5 (monitoreo, drift y reentrenamiento):** requiere ciclos reales
-  evaluados para tener algo que medir. El esquema ya tiene las tablas
-  (`prediction_evaluations`, `cycle_metrics`, `drift_signals`).
-- **Informe final:** este documento es su base; falta la síntesis y la
-  reflexión de cierre.
-- **Bonos no abordados:** dashboard en Vercel, MLflow, estrategia de rollback.
+- **Evidencia de evaluación con datos reales:** el código está completo y
+  ejercitado de punta a punta con un simulacro, pero la ronda de práctica
+  pidió un instante cuyo valor real nunca se publicó, así que
+  `prediction_evaluations` y `cycle_metrics` siguen vacías. Depende de que
+  arranque la competencia.
+- **Cierre del informe final** con los resultados reales de la ventana
+  competitiva. El documento ya está escrito: [`INFORME_FINAL.md`](INFORME_FINAL.md).
+
+Los cinco bonos de la guía están cubiertos: dashboard en Vercel, MLflow,
+pruebas automatizadas, estrategia de rollback y monitoreo de drift más allá
+de la métrica de desempeño.
 
 ---
 
@@ -212,5 +268,8 @@ Registradas porque la guía valora poder demostrar el estado, no afirmarlo:
   historial del repositorio.
 - Reproducibilidad: el artefacto del champion se descarga desde Storage y
   vuelve a predecir en un entorno limpio (así opera GitHub Actions).
-- Pruebas: 19 tests automatizados en CI, incluidos casos de regresión de cada
+- Pruebas: 32 tests automatizados en CI, incluidos casos de regresión de cada
   error descrito arriba.
+- Ciclo completo: un simulacro con 48 targets y cuatro horizontes recorre
+  predicción, emparejamiento con la realidad, métricas y limpieza, y verifica
+  el resultado con un cálculo independiente.

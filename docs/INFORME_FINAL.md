@@ -157,7 +157,44 @@ corrida contra un ciclo real.
 **Las tablas vacías vuelven sin columnas.** El monitoreo reventaba justo en el
 estado normal previo a la competencia.
 
-### 4.4. Una intuición que resultó falsa
+### 4.4. El monitoreo habría dado una falsa alarma cada noche
+
+El hallazgo más útil del proyecto salió de un simulacro hecho en el último
+momento: crear un ciclo con 48 targets anclado en el pasado —para que los
+valores reales ya existieran— y hacer correr el camino completo.
+
+Sirvió para lo que se buscaba (el pipeline de evaluación nunca había escrito
+una fila real), pero además destapó algo que ninguna prueba unitaria podía
+ver. Midiendo ciclos reales a distintas horas del día:
+
+| Hora (Bogotá) | Accuracy del ciclo |
+|---|---:|
+| 09:45 mañana | 85.73 |
+| 15:45 tarde | 85.47 |
+| 21:45 noche | 80.05 |
+| 03:45 madrugada | 74.99 |
+| 22:45 noche | **72.17** |
+
+**Trece puntos de diferencia sin que nada falle.** No es que el modelo se
+rompa de noche: con poca gente, WAPE castiga desproporcionadamente los
+errores pequeños. Equivocarse por cinco pasajeros sobre veinte pesa como
+equivocarse por cien sobre cuatrocientos.
+
+El detector de degradación comparaba los últimos tres **ciclos** contra la
+métrica de validación (86.61). De madrugada eso son catorce puntos por
+debajo, así que habría declarado degradación **todas las noches**, y con
+datos nuevos suficientes habría decidido reentrenar sin que ocurriera nada.
+
+La corrección fue comparar ventanas móviles de 24 horas —justo la lectura
+que la guía pide— porque cubren todas las horas del día, igual que la
+métrica de validación contra la que se comparan. Y no emitir juicio con
+menos de media ventana, porque media ventana vuelve a ser una muestra
+sesgada por la franja horaria.
+
+La lección no es sobre el umbral: es que **WAPE no es una métrica neutra**.
+Depende del volumen, y eso cambia cómo hay que monitorearla.
+
+### 4.5. Una intuición que resultó falsa
 
 Entrenar un modelo especializado por horizonte parecía obviamente mejor.
 Medido: **86.39** contra **86.93** del modelo único. El compartido gana porque
@@ -199,6 +236,11 @@ existe únicamente porque ese error ya se había cometido antes en el proyecto.
   umbrales que no se han puesto a prueba.
 - **Los umbrales de drift están justificados, no validados.** Salen de
   mediciones propias, pero ninguno se ha enfrentado todavía a un drift real.
+  Sí se validó, en cambio, que **no disparen cuando no deben**: el simulacro
+  confirmó que la variación normal por hora del día no los activa.
+- **El accuracy de un ciclo suelto no es comparable con el de validación.**
+  Varía hasta trece puntos según la hora. Cualquier lectura por ciclo debe
+  interpretarse contra su franja horaria, no contra el 86.61.
 - **La dependencia de `lag_672` sigue siendo el riesgo principal.** Cuesta 2.11
   puntos si esa señal falla, y es exactamente el tipo de patrón que un cambio
   de comportamiento urbano rompería.
@@ -235,10 +277,17 @@ Que el número no es el proyecto. La decisión más difícil fue aceptar bajar d
 86.77 a 85.22, y fue la correcta: la primera cifra medía un problema que nadie
 nos iba a pedir resolver.
 
-Que los fallos que importan no hacen ruido. Los tres peores errores —el modelo
-de un solo horizonte, el horizonte mal medido y la prueba que no probaba
-nada— habrían pasado todos los controles en verde y habrían costado la
-competencia sin dejar rastro en ningún log.
+Que los fallos que importan no hacen ruido. Los peores errores del proyecto
+—el modelo de un solo horizonte, el horizonte mal medido, la prueba que no
+probaba nada y el monitoreo que habría gritado cada madrugada— habrían pasado
+todos los controles en verde. Ninguno lanzaba una excepción. Los tests
+pasaban. Solo aparecieron al ejercitar el sistema con datos reales, y tres de
+los cuatro se encontraron buscando otra cosa.
+
+De ahí la costumbre que más rindió: no dar por buena una verificación sin
+comprobar que realmente verifica algo. La corrida que "probaba" el ensamble
+terminaba antes de cargarlo; el simulacro que se hizo para validar el
+pipeline de evaluación fue el que destapó el problema del monitoreo.
 
 Y que en un sistema que debe operar solo, la fiabilidad vale más que la
 precisión. Un modelo de 86.61 que entrega puntualmente vence a uno de 90 que
