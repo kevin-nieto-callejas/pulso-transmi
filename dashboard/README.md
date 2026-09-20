@@ -33,7 +33,11 @@ es un descuido que esté en el código: es su propósito. Está verificado en la
 práctica —lectura devuelve `200`, escritura devuelve `401`— gracias a las
 políticas RLS descritas en [`docs/entity-relation.md`](../docs/entity-relation.md).
 
-## Desplegar en Vercel
+## Desplegado en
+
+**https://pulso-transmi-one.vercel.app** — se actualiza solo en cada push a `main`.
+
+## Cómo se desplegó
 
 No tiene build ni dependencias: es un archivo estático.
 

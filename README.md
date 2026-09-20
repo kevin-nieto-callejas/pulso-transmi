@@ -54,8 +54,9 @@ entrega el profesor al activar el reloj):
   reentrenar con umbrales justificados. Corre tras cada recolección.
 - ✅ Estrategia de rollback (`src/rollback.py`, bono): vuelve a un champion
   anterior verificando primero que cargue, y deja la decisión registrada.
-- ✅ Dashboard (bono): [`dashboard/`](dashboard/README.md) — estado en vivo
-  leído con la llave pública de solo lectura.
+- ✅ Dashboard (bono) desplegado en Vercel:
+  **https://pulso-transmi-one.vercel.app** — estado en vivo leído con la
+  llave pública de solo lectura ([`dashboard/`](dashboard/README.md)).
 - ✅ MLflow (bono): barrido de experimentos en `src/sweep.py`.
 
 ## Collector incremental
