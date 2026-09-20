@@ -1,7 +1,19 @@
 """Entrena, compara y promueve el modelo champion de Pulso TransMi.
 
 Corre varios candidatos con la misma validacion cruzada temporal
-(TimeSeriesSplit, nunca aleatoria) para poder comparar de forma justa:
+(TimeSeriesSplit, nunca aleatoria) para poder comparar de forma justa.
+
+Ronda de mejora (conjunto de features ampliado, ver src/features.py):
+
+  A. lgbm_extendido      - LightGBM afinado.
+  B. catboost_extendido  - CatBoost afinado.
+  C. xgboost_extendido   - XGBoost afinado.
+  D. ensamble_extendido  - promedio de los tres anteriores (VotingRegressor).
+                            Familias distintas de boosting se equivocan en
+                            sitios distintos, asi que promediarlas suele
+                            ganarle a cualquiera por separado.
+
+Candidatos de la ronda anterior, conservados para comparar:
 
   1. rf_full          - Random Forest con todas las features.
   2. rf_no_weekly_lag - Random Forest SIN lag_672/roll_mean_96/roll_std_96,
@@ -38,7 +50,14 @@ from pathlib import Path
 import httpx
 import joblib
 import pandas as pd
-from sklearn.ensemble import ExtraTreesRegressor, GradientBoostingRegressor, RandomForestRegressor
+from catboost import CatBoostRegressor
+from lightgbm import LGBMRegressor
+from sklearn.ensemble import (
+    ExtraTreesRegressor,
+    GradientBoostingRegressor,
+    RandomForestRegressor,
+    VotingRegressor,
+)
 from sklearn.model_selection import TimeSeriesSplit
 from xgboost import XGBRegressor
 
@@ -49,6 +68,7 @@ ARTIFACTS.mkdir(exist_ok=True)
 
 sys.path.insert(0, str(ROOT / "src"))
 from features import (  # noqa: E402
+    EXTENDED_FEATURE_COLUMNS,
     HORIZONS_MINUTES,
     MULTI_HORIZON_FEATURE_COLUMNS,
     MULTI_HORIZON_NO_WEEKLY_LAG_FEATURE_COLUMNS,
@@ -61,7 +81,43 @@ from features import (  # noqa: E402
 
 def build_candidates(observations: pd.DataFrame) -> dict:
     with_station = MULTI_HORIZON_FEATURE_COLUMNS + station_dummy_columns(observations)
-    return {
+    # Conjunto ampliado (ronda de mejora): pronostico del clima -que existia en
+    # la API y nunca se uso-, escalas intermedias, tendencia, perfil historico
+    # por franja horaria y la hora del instante objetivo. Ver src/features.py.
+    extendido = EXTENDED_FEATURE_COLUMNS + station_dummy_columns(observations)
+    semilla = dict(random_state=20260918, n_jobs=-1)
+
+    lgbm_afinado = dict(
+        n_estimators=1500, num_leaves=127, learning_rate=0.02, subsample=0.8,
+        colsample_bytree=0.7, min_child_samples=20, reg_lambda=1.0, verbose=-1, **semilla,
+    )
+    xgb_afinado = dict(
+        n_estimators=1200, max_depth=8, learning_rate=0.02, subsample=0.8,
+        colsample_bytree=0.7, min_child_weight=3, reg_lambda=2.0, tree_method="hist", **semilla,
+    )
+    cat_afinado = dict(
+        iterations=1500, depth=8, learning_rate=0.03, l2_leaf_reg=3,
+        random_seed=20260918, verbose=0, allow_writing_files=False,
+    )
+
+    nuevos = {
+        "lgbm_extendido": (LGBMRegressor, extendido, lgbm_afinado),
+        "catboost_extendido": (CatBoostRegressor, extendido, cat_afinado),
+        "xgboost_extendido": (XGBRegressor, extendido, xgb_afinado),
+        # Promediar tres familias distintas de boosting compensa los errores
+        # particulares de cada una. VotingRegressor se serializa con joblib sin
+        # necesidad de clases propias, asi que el artefacto sigue cargandose
+        # igual desde Storage.
+        "ensamble_extendido": (
+            VotingRegressor, extendido,
+            dict(estimators=[
+                ("lgbm", LGBMRegressor(**lgbm_afinado)),
+                ("xgb", XGBRegressor(**xgb_afinado)),
+                ("cat", CatBoostRegressor(**cat_afinado)),
+            ]),
+        ),
+    }
+    return {**nuevos, **{
         "rf_full": (
             RandomForestRegressor, MULTI_HORIZON_FEATURE_COLUMNS,
             dict(n_estimators=200, max_depth=10, random_state=20260916, n_jobs=-1),
@@ -106,7 +162,7 @@ def build_candidates(observations: pd.DataFrame) -> dict:
                 random_state=20260916, n_jobs=-1, tree_method="hist",
             ),
         ),
-    }
+    }}
 
 
 def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -117,7 +173,9 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
     return observations, context
 
 
-def evaluate_candidate(model_cls, feature_columns: list[str], params: dict, feature_frame: pd.DataFrame) -> float:
+def evaluate_candidate(
+    model_cls, feature_columns: list[str], params: dict, feature_frame: pd.DataFrame, n_splits: int = 5,
+) -> float:
     """Validacion cruzada temporal. El split ocurre sobre `observed_at`, que
     en el frame multi-horizonte sigue siendo el momento ANCLA (lo que se
     sabe al predecir) aunque cada ancla aparezca 4 veces, una por horizonte
@@ -126,7 +184,7 @@ def evaluate_candidate(model_cls, feature_columns: list[str], params: dict, feat
     """
     model_frame = feature_frame.dropna(subset=feature_columns + ["target_demand"]).sort_values("observed_at")
     unique_times = model_frame["observed_at"].sort_values().unique()
-    splitter = TimeSeriesSplit(n_splits=5)
+    splitter = TimeSeriesSplit(n_splits=n_splits)
     accuracies = []
 
     for train_idx, test_idx in splitter.split(unique_times):
@@ -256,18 +314,32 @@ def main() -> None:
     fragility_gap = results["rf_full"] - results["rf_no_weekly_lag"]
     print(f"\nBrecha de fragilidad (rf_full - rf_no_weekly_lag): {fragility_gap:.2f} puntos")
 
+    # La comparacion es lo mas caro de esta corrida (mas de una hora): se
+    # persiste apenas existe, para no perderla si algo falla mas adelante.
+    (ROOT / "eda" / "reports" / "candidate_comparison.csv").write_text(
+        "candidato,accuracy\n" + "\n".join(f"{k},{v:.4f}" for k, v in sorted(results.items(), key=lambda x: -x[1])),
+        encoding="utf-8",
+    )
+
     winner_name = max(results, key=results.get)
     winner_accuracy = results[winner_name]
     print(f"\nMejor candidato de esta corrida: {winner_name} (accuracy_mean={winner_accuracy:.2f})")
 
     model_cls, feature_columns, params = candidates[winner_name]
+    # El desglose por horizonte es informativo, no decide nada. Va en try:
+    # una corrida anterior se quedo sin memoria justo aqui, DESPUES de haber
+    # comparado los 12 candidatos y ANTES de promover, y se perdio mas de una
+    # hora de computo por un calculo opcional.
     print("\nDesglose por horizonte (mismo candidato ganador, misma validacion):")
     accuracy_by_horizon = {}
-    for horizon in HORIZONS_MINUTES:
-        subset = feature_frame[feature_frame["horizon_minutes"] == horizon]
-        acc_h = evaluate_candidate(model_cls, feature_columns, params, subset)
-        accuracy_by_horizon[f"+{horizon}min"] = acc_h
-        print(f"  +{horizon:>2}min  accuracy={acc_h:.2f}")
+    try:
+        for horizon in HORIZONS_MINUTES:
+            subset = feature_frame[feature_frame["horizon_minutes"] == horizon]
+            acc_h = evaluate_candidate(model_cls, feature_columns, params, subset)
+            accuracy_by_horizon[f"+{horizon}min"] = acc_h
+            print(f"  +{horizon:>2}min  accuracy={acc_h:.2f}")
+    except Exception as exc:
+        print(f"  (desglose incompleto: {type(exc).__name__}: {exc}. Se continua con la promocion.)")
 
     current_champion = get_current_champion()
     champion_is_comparable = bool(current_champion) and "horizon_minutes" in (current_champion.get("features") or [])

@@ -9,3 +9,9 @@ build/
 artifacts/
 data/
 *.egg-info/
+
+# Base local de MLflow (se regenera con src/sweep.py).
+# La evidencia versionada es eda/reports/sweep_results.csv.
+mlflow.db
+mlruns/
+mlartifacts/

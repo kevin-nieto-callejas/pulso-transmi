@@ -15,7 +15,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ml = ["scikit-learn>=1.5,<2", "joblib>=1.4,<2", "matplotlib>=3.9,<4", "xgboost>=2.1,<4"]
+# lightgbm y catboost no son solo para entrenar: el champion puede ser un
+# ensamble que los contenga, y joblib necesita las mismas librerias para
+# reconstruirlo al cargarlo en el workflow de inferencia.
+ml = [
+  "scikit-learn>=1.5,<2", "joblib>=1.4,<2", "matplotlib>=3.9,<4",
+  "xgboost>=2.1,<4", "lightgbm>=4.5,<5", "catboost>=1.2,<2",
+]
+# Seguimiento de experimentos (bono de madurez de la guia). Aparte de `ml`
+# porque la inferencia en produccion no lo necesita: el workflow que entrega
+# cada ciclo debe instalar lo minimo y arrancar rapido.
+tracking = ["mlflow>=2.16,<4"]
 dev = ["pytest>=8,<9"]
 
 [tool.setuptools.packages.find]

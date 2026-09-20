@@ -32,6 +32,30 @@ HORIZONS_MINUTES = (15, 30, 45, 60)
 MULTI_HORIZON_FEATURE_COLUMNS = ALL_FEATURE_COLUMNS + ["horizon_minutes"]
 MULTI_HORIZON_NO_WEEKLY_LAG_FEATURE_COLUMNS = NO_WEEKLY_LAG_FEATURE_COLUMNS + ["horizon_minutes"]
 
+# --- Conjunto ampliado (ronda de mejora) -----------------------------------
+# Tres huecos detectados al revisar por que el modelo se estanca:
+#
+#  1. `rain_forecast` y `temperature_forecast` existen en la API y NUNCA se
+#     usaron. Para predecir el futuro, el PRONOSTICO del clima es la variable
+#     correcta; la lluvia observada ahora describe el pasado.
+#  2. El modelo conocia la hora del ancla y el horizonte, pero no la hora del
+#     TARGET. Deducirla exige una aritmetica que un arbol no hace bien, y el
+#     perfil de demanda depende sobre todo de la hora objetivo.
+#  3. Faltaban escalas intermedias (2 h, 2 dias, 2 semanas) y la tendencia
+#     reciente (la demanda esta subiendo o bajando respecto a hace una hora).
+EXTRA_LAG_COLUMNS = [
+    "lag_2", "lag_3", "lag_8", "lag_192", "lag_1344",
+    "roll_mean_8", "roll_mean_48", "roll_std_4", "roll_max_96", "roll_min_96",
+    "diff_1h", "diff_1d", "ratio_1h",
+]
+FORECAST_COLUMNS = ["rain_forecast", "temperature_forecast"]
+SLOT_COLUMNS = ["slot_mean"]
+TARGET_TIME_COLUMNS = ["target_hour_sin", "target_hour_cos", "target_dow_sin", "target_dow_cos", "target_is_weekend"]
+
+EXTENDED_FEATURE_COLUMNS = (
+    MULTI_HORIZON_FEATURE_COLUMNS + EXTRA_LAG_COLUMNS + FORECAST_COLUMNS + SLOT_COLUMNS + TARGET_TIME_COLUMNS
+)
+
 
 def build_feature_frame(observations: pd.DataFrame, context: pd.DataFrame) -> pd.DataFrame:
     frame = observations.sort_values(["station_id", "observed_at"]).copy()
@@ -53,6 +77,36 @@ def build_feature_frame(observations: pd.DataFrame, context: pd.DataFrame) -> pd
     frame["roll_mean_4"] = grouped.shift(1).rolling(4).mean()
     frame["roll_mean_96"] = grouped.shift(1).rolling(96).mean()
     frame["roll_std_96"] = grouped.shift(1).rolling(96).std()
+
+    # --- Escalas intermedias y tendencia (ronda de mejora) ---
+    # Todo parte de shift(>=1): nunca mira el presente ni el futuro.
+    frame["lag_2"] = grouped.shift(2)
+    frame["lag_3"] = grouped.shift(3)
+    frame["lag_8"] = grouped.shift(8)        # 2 horas
+    frame["lag_192"] = grouped.shift(192)    # 2 dias
+    frame["lag_1344"] = grouped.shift(1344)  # 2 semanas
+    frame["roll_mean_8"] = grouped.shift(1).rolling(8).mean()
+    frame["roll_mean_48"] = grouped.shift(1).rolling(48).mean()
+    frame["roll_std_4"] = grouped.shift(1).rolling(4).std()
+    frame["roll_max_96"] = grouped.shift(1).rolling(96).max()
+    frame["roll_min_96"] = grouped.shift(1).rolling(96).min()
+
+    # Tendencia: ¿viene subiendo o bajando respecto a hace una hora / un dia?
+    frame["diff_1h"] = frame["lag_1"] - frame["lag_4"]
+    frame["diff_1d"] = frame["lag_1"] - frame["lag_96"]
+    frame["ratio_1h"] = frame["lag_1"] / frame["lag_4"].replace(0, np.nan)
+
+    # Perfil historico de cada estacion en cada franja de la semana, calculado
+    # de forma causal: para cada fila, el promedio de TODAS las ocurrencias
+    # ANTERIORES de esa misma franja (shift(1) antes de expanding). Le da al
+    # modelo "cuanta gente suele haber aqui un martes a las 7:15" sin filtrar
+    # el valor que se quiere predecir.
+    slot = frame["day_of_week"] * 96 + frame["hour"] * 4 + frame["minute"] // 15
+    frame["_slot"] = slot
+    frame["slot_mean"] = (
+        frame.groupby(["station_id", "_slot"])["demand"].transform(lambda s: s.shift(1).expanding().mean())
+    )
+    frame = frame.drop(columns="_slot")
 
     frame = frame.merge(context, on="observed_at", how="left")
 
@@ -88,6 +142,20 @@ def explode_horizons(anchor_frame: pd.DataFrame, horizons_minutes: tuple[int, ..
         variant["horizon_minutes"] = horizon
         variant["target_at"] = variant["observed_at"] + pd.Timedelta(minutes=horizon)
         variant["target_demand"] = grouped.shift(-steps).reindex(variant.index)
+
+        # Hora y dia del INSTANTE OBJETIVO. No es fuga: el reloj del futuro se
+        # conoce de antemano. Sin esto el modelo tenia la hora del ancla y el
+        # horizonte por separado, y deducir "entonces el target cae a las 7:15"
+        # exige una aritmetica que los arboles no hacen bien - justo cuando el
+        # perfil de demanda depende sobre todo de la hora objetivo.
+        t = variant["target_at"]
+        periodo = t.dt.hour * 4 + t.dt.minute / 15
+        variant["target_hour_sin"] = np.sin(2 * np.pi * periodo / 96)
+        variant["target_hour_cos"] = np.cos(2 * np.pi * periodo / 96)
+        variant["target_dow_sin"] = np.sin(2 * np.pi * t.dt.dayofweek / 7)
+        variant["target_dow_cos"] = np.cos(2 * np.pi * t.dt.dayofweek / 7)
+        variant["target_is_weekend"] = t.dt.dayofweek.isin([5, 6]).astype(int)
+
         variants.append(variant)
     return pd.concat(variants, ignore_index=True)
 
