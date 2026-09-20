@@ -1,0 +1,13 @@
+candidato,accuracy
+ensamble_extendido,86.6084
+xgboost_extendido,86.4688
+lgbm_extendido,86.4367
+catboost_extendido,86.4050
+xgboost_station,85.2202
+rf_tuned,84.5458
+extra_trees_full,84.3691
+xgboost_full,84.2824
+xgboost_tuned2,83.6042
+rf_full,82.9204
+gbr_full,80.8176
+rf_no_weekly_lag,80.8148
