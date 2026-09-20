@@ -26,8 +26,17 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: python -m pip install -e .
+      - run: python -m pip install -e '.[ml]'
       - run: python src/check_contract.py
         env:
           # Solo para no pegarle al limite de peticiones anonimas de GitHub.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # El champion es un ensamble de tres librerias distintas. Si alguna
+      # falta en el runner, infer.py solo lo descubriria cuando haya un ciclo
+      # abierto -es decir, perdiendo esa entrega-. Aqui se comprueba siempre,
+      # haya ciclo o no.
+      - run: python src/check_model.py
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
