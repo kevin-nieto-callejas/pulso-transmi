@@ -35,3 +35,12 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      # Evaluar justo despues de recolectar: la realidad de los targets llega
+      # por el mismo stream, asi que este es el momento en que hay datos
+      # nuevos que emparejar. Si falla, no debe tumbar la recoleccion: perder
+      # una medicion es molesto, perder datos es peor.
+      - run: python src/evaluate.py
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
