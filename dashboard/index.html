@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pulso TransMi — Estado del sistema</title>
+<style>
+  :root {
+    color-scheme: light;
+    --plane: #f9f9f7;
+    --surface: #fcfcfb;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --series: #2a78d6;
+    --good: #0ca30c;
+    --warning: #fab219;
+    --serious: #ec835a;
+    --critical: #d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --plane: #0d0d0d; --surface: #1a1a19; --ink: #fff; --ink-2: #c3c2b7;
+      --muted: #898781; --grid: #2c2c2a; --axis: #383835;
+      --border: rgba(255,255,255,0.10); --series: #3987e5;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --plane: #0d0d0d; --surface: #1a1a19; --ink: #fff; --ink-2: #c3c2b7;
+    --muted: #898781; --grid: #2c2c2a; --axis: #383835;
+    --border: rgba(255,255,255,0.10); --series: #3987e5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--plane); color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 16px 64px; }
+  header { margin-bottom: 28px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--ink-2); font-size: 0.9rem; margin: 0; }
+  .sub a { color: var(--series); }
+  h2 { font-size: 1rem; margin: 0 0 2px; }
+  .hint { color: var(--muted); font-size: 0.8rem; margin: 0 0 14px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 10px; padding: 18px; margin-bottom: 18px;
+  }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+  .tile .label { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  .tile .value { font-size: 1.9rem; font-weight: 600; margin-top: 4px; letter-spacing: -0.02em; }
+  .tile .note { color: var(--ink-2); font-size: 0.8rem; margin-top: 2px; word-break: break-word; }
+  .estado { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; font-weight: 500; }
+  .punto { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .vacio { color: var(--ink-2); font-size: 0.9rem; padding: 26px 8px; text-align: center; border: 1px dashed var(--axis); border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+  th { text-align: left; color: var(--muted); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--grid); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
+  td { padding: 7px 8px; border-bottom: 1px solid var(--grid); color: var(--ink-2); }
+  td.dato { color: var(--ink); }
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 0.8rem; }
+  .senal { display: flex; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--grid); font-size: 0.87rem; }
+  .senal:last-child { border-bottom: none; }
+  .senal .tipo { font-weight: 600; flex: none; }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .eje { font-size: 10px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+  footer { color: var(--muted); font-size: 0.78rem; margin-top: 30px; border-top: 1px solid var(--grid); padding-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Pulso TransMi — Estado del sistema</h1>
+  <p class="sub">
+    Equipo Kevin Nieto · Grupo A · <span id="actualizado">cargando…</span> ·
+    <a href="https://github.com/kevin-nieto-callejas/pulso-transmi">repositorio</a>
+  </p>
+</header>
+
+<div class="tiles" id="tiles"></div>
+
+<section class="card">
+  <h2>Accuracy por ciclo</h2>
+  <p class="hint">Desempeño real de cada entrega evaluada. Las marcas verticales señalan cambios de modelo, para poder relacionar una caída con una promoción.</p>
+  <div id="tendencia"></div>
+</section>
+
+<section class="card">
+  <h2>Accuracy por estación</h2>
+  <p class="hint">La métrica oficial promedia las 12 estaciones sin ponderar: una estación grande no puede tapar a una pequeña.</p>
+  <div id="estaciones"></div>
+</section>
+
+<section class="card">
+  <h2>Señales de drift</h2>
+  <p class="hint">Degradación de rendimiento, cambio en los datos de entrada, o falla operacional — sin tener que leer logs.</p>
+  <div id="senales"></div>
+</section>
+
+<section class="card">
+  <h2>Salud operacional</h2>
+  <p class="hint">Últimas ejecuciones del recolector. Una falla aquí explica un accuracy bajo mejor que cualquier teoría sobre el modelo.</p>
+  <div id="operacion"></div>
+</section>
+
+<section class="card">
+  <h2>Historial de modelos</h2>
+  <p class="hint">Ningún modelo se borra: al ser reemplazado queda como histórico y se puede volver a él.</p>
+  <div id="modelos"></div>
+</section>
+
+<footer>
+  Datos leídos en vivo desde Supabase con la llave pública de solo lectura.
+  Las credenciales de escritura y la API key de envíos nunca llegan al navegador.
+  La posición en el leaderboard no se muestra aquí a propósito: consultarla exige
+  la API key privada del participante.
+</footer>
+</div>
+
+<script>
+const SUPABASE_URL = "https://bawwhejgcvlawfqualrj.supabase.co";
+const ANON_KEY = "sb_publishable_b4hvWnqi4Sf_6OlOQ_27xw_KY7pgFaD";
+
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const esc = (s) => String(s ?? "").replace(/[<>&"]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c]));
+
+async function tabla(nombre, query) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/${nombre}?${query}&apikey=${ANON_KEY}`);
+  if (!r.ok) throw new Error(`${nombre}: ${r.status}`);
+  return r.json();
+}
+
+function vacio(msg) { return `<div class="vacio">${msg}</div>`; }
+
+/* --- Gráfica de línea: una sola serie, sin leyenda (el título la nombra) --- */
+function lineaAccuracy(datos, promociones) {
+  if (!datos.length) {
+    return vacio("Todavía no hay ciclos evaluados.<br>Aparecerán aquí en cuanto la competencia publique los valores reales.");
+  }
+  const W = 860, H = 260, L = 44, R = 16, T = 12, B = 34;
+  const vals = datos.map(d => d.accuracy);
+  const min = Math.floor(Math.min(...vals, 80) - 2), max = Math.ceil(Math.max(...vals, 90) + 2);
+  const x = i => L + (datos.length === 1 ? (W-L-R)/2 : i * (W - L - R) / (datos.length - 1));
+  const y = v => T + (max - v) * (H - T - B) / (max - min);
+
+  const ticks = [];
+  for (let v = min; v <= max; v += Math.max(1, Math.round((max - min) / 5))) ticks.push(v);
+
+  const linea = datos.map((d, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(d.accuracy).toFixed(1)}`).join(" ");
+
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Accuracy por ciclo">
+    ${ticks.map(v => `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="${css("--grid")}" stroke-width="1"/>
+      <text class="eje" x="${L-8}" y="${y(v)+3}" text-anchor="end">${v}</text>`).join("")}
+    <line x1="${L}" x2="${W-R}" y1="${H-B}" y2="${H-B}" stroke="${css("--axis")}" stroke-width="1"/>
+    ${promociones.map(p => {
+      const i = datos.findIndex(d => d.computed_at >= p.created_at);
+      if (i < 0) return "";
+      return `<line x1="${x(i)}" x2="${x(i)}" y1="${T}" y2="${H-B}" stroke="${css("--axis")}" stroke-width="1"/>
+              <text class="eje" x="${x(i)+4}" y="${T+10}">modelo nuevo</text>`;
+    }).join("")}
+    <path d="${linea}" fill="none" stroke="${css("--series")}" stroke-width="2" stroke-linejoin="round"/>
+    ${datos.map((d, i) => `<circle cx="${x(i)}" cy="${y(d.accuracy)}" r="4" fill="${css("--series")}"
+        stroke="${css("--surface")}" stroke-width="2"><title>${esc(d.cycle_id)}: ${d.accuracy.toFixed(2)}</title></circle>`).join("")}
+    <text class="eje" x="${L}" y="${H-12}">${esc(datos[0].cycle_id)}</text>
+    <text class="eje" x="${W-R}" y="${H-12}" text-anchor="end">${esc(datos[datos.length-1].cycle_id)}</text>
+    <text x="${x(datos.length-1)}" y="${y(datos[datos.length-1].accuracy)-12}" text-anchor="end"
+      font-size="12" font-weight="600" fill="${css("--ink")}">${datos[datos.length-1].accuracy.toFixed(1)}</text>
+  </svg>`;
+}
+
+/* --- Barras por estación: una serie, un solo color para todas --- */
+function barrasEstaciones(datos) {
+  if (!datos.length) return vacio("Sin evaluaciones por estación todavía.");
+  const W = 860, filaH = 26, L = 72, R = 48;
+  const H = datos.length * filaH + 10;
+  const max = 100;
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Accuracy por estación">
+    ${datos.map((d, i) => {
+      const ancho = (d.accuracy / max) * (W - L - R);
+      const yy = i * filaH + 4;
+      return `<text class="eje" x="${L-10}" y="${yy+13}" text-anchor="end">${esc(d.station_id)}</text>
+        <rect x="${L}" y="${yy}" width="${Math.max(ancho,2)}" height="16" rx="4" fill="${css("--series")}"><title>${esc(d.station_id)}: ${d.accuracy.toFixed(2)}</title></rect>
+        <text class="eje" x="${L+ancho+8}" y="${yy+13}" fill="${css("--ink-2")}">${d.accuracy.toFixed(1)}</text>`;
+    }).join("")}
+  </svg>`;
+}
+
+function tablaHTML(cabeceras, filas) {
+  if (!filas.length) return "";
+  return `<details><summary>Ver como tabla</summary><table>
+    <thead><tr>${cabeceras.map(h => `<th>${h}</th>`).join("")}</tr></thead>
+    <tbody>${filas.map(f => `<tr>${f.map((c,i) => `<td class="${i?'dato':''}">${c}</td>`).join("")}</tr>`).join("")}</tbody>
+  </table></details>`;
+}
+
+const COLOR_SENAL = { performance: "--critical", data: "--warning", operational: "--serious" };
+const NOMBRE_SENAL = { performance: "Rendimiento", data: "Datos", operational: "Operación" };
+
+async function cargar() {
+  document.getElementById("actualizado").textContent =
+    "actualizado " + new Date().toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
+
+  const [modelos, metricas, senales, corridas, envios, obs] = await Promise.all([
+    tabla("model_versions", "select=version_id,status,validation_metric,created_at&order=created_at.desc"),
+    tabla("cycle_metrics", "select=cycle_id,station_id,accuracy,computed_at&order=computed_at.asc"),
+    tabla("drift_signals", "select=detected_at,signal_type,description,action_taken&order=detected_at.desc&limit=8"),
+    tabla("collector_runs", "select=started_at,status,rows_ingested&order=started_at.desc&limit=12"),
+    tabla("submissions", "select=submission_id,cycle_id,accepted,submitted_at&order=submitted_at.desc"),
+    tabla("observations", "select=count"),
+  ]);
+
+  const champion = modelos.find(m => m.status === "champion");
+  const totales = metricas.filter(m => m.station_id === null);
+  const ultima = totales.length ? totales[totales.length - 1].accuracy : null;
+  const fallidas = corridas.filter(c => c.status === "failed").length;
+
+  /* Tiles */
+  document.getElementById("tiles").innerHTML = `
+    <div class="tile"><div class="label">Accuracy real</div>
+      <div class="value">${ultima !== null ? ultima.toFixed(2) : "—"}</div>
+      <div class="note">${ultima !== null ? "último ciclo evaluado" : "esperando el primer ciclo"}</div></div>
+    <div class="tile"><div class="label">Modelo champion</div>
+      <div class="value">${champion ? champion.validation_metric.toFixed(2) : "—"}</div>
+      <div class="note">${champion ? esc(champion.version_id) : "sin champion"}</div></div>
+    <div class="tile"><div class="label">Entregas aceptadas</div>
+      <div class="value">${envios.filter(e => e.accepted).length}</div>
+      <div class="note">${envios.length} submission(es) registradas</div></div>
+    <div class="tile"><div class="label">Recolector</div>
+      <div class="value"><span class="estado">
+        <span class="punto" style="background:${css(fallidas ? "--critical" : "--good")}"></span>
+        ${fallidas ? fallidas + " con fallo" : "en orden"}</span></div>
+      <div class="note">${obs[0]?.count?.toLocaleString("es-CO") ?? "—"} observaciones guardadas</div></div>`;
+
+  /* Tendencia */
+  const promos = modelos.filter(m => m.status !== "candidate");
+  document.getElementById("tendencia").innerHTML = lineaAccuracy(totales, promos) +
+    tablaHTML(["Ciclo", "Accuracy"], totales.map(t => [esc(t.cycle_id), t.accuracy.toFixed(2)]));
+
+  /* Estaciones: promedio por estación sobre todo lo evaluado */
+  const porEstacion = {};
+  metricas.filter(m => m.station_id !== null).forEach(m => {
+    (porEstacion[m.station_id] ??= []).push(m.accuracy);
+  });
+  const filasEst = Object.entries(porEstacion)
+    .map(([station_id, v]) => ({ station_id, accuracy: v.reduce((a, b) => a + b, 0) / v.length }))
+    .sort((a, b) => a.accuracy - b.accuracy);
+  document.getElementById("estaciones").innerHTML = barrasEstaciones(filasEst) +
+    tablaHTML(["Estación", "Accuracy medio"], filasEst.map(f => [esc(f.station_id), f.accuracy.toFixed(2)]));
+
+  /* Señales */
+  document.getElementById("senales").innerHTML = senales.length
+    ? senales.map(s => `<div class="senal">
+        <span class="tipo" style="color:${css(COLOR_SENAL[s.signal_type] ?? "--muted")}">
+          ${NOMBRE_SENAL[s.signal_type] ?? esc(s.signal_type)}</span>
+        <span><span style="color:var(--ink)">${esc(s.description)}</span><br>
+          <span style="color:var(--muted);font-size:0.8rem">${new Date(s.detected_at).toLocaleString("es-CO")} · ${esc(s.action_taken ?? "")}</span></span>
+      </div>`).join("")
+    : vacio("Ninguna señal activa. El monitoreo corre después de cada recolección.");
+
+  /* Operación */
+  document.getElementById("operacion").innerHTML = corridas.length
+    ? `<table><thead><tr><th>Cuándo</th><th>Estado</th><th>Filas</th></tr></thead><tbody>
+       ${corridas.map(c => {
+         const color = c.status === "failed" ? "--critical" : c.status === "success" ? "--good" : "--muted";
+         return `<tr><td>${new Date(c.started_at).toLocaleString("es-CO")}</td>
+           <td class="dato"><span class="estado"><span class="punto" style="background:${css(color)}"></span>${esc(c.status)}</span></td>
+           <td class="dato">${c.rows_ingested}</td></tr>`;
+       }).join("")}</tbody></table>`
+    : vacio("Sin ejecuciones registradas.");
+
+  /* Modelos */
+  document.getElementById("modelos").innerHTML = `<table>
+    <thead><tr><th>Versión</th><th>Estado</th><th>Accuracy validación</th><th>Creado</th></tr></thead>
+    <tbody>${modelos.map(m => `<tr>
+      <td class="dato">${esc(m.version_id)}</td>
+      <td><span class="estado"><span class="punto" style="background:${css(m.status === "champion" ? "--good" : "--muted")}"></span>${esc(m.status)}</span></td>
+      <td class="dato">${m.validation_metric.toFixed(2)}</td>
+      <td>${new Date(m.created_at).toLocaleDateString("es-CO")}</td></tr>`).join("")}</tbody></table>`;
+}
+
+cargar().catch(e => {
+  document.getElementById("tiles").innerHTML =
+    `<div class="tile"><div class="label">Error</div><div class="note">No se pudo leer Supabase: ${esc(e.message)}</div></div>`;
+});
+</script>
+</body>
+</html>

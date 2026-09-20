@@ -48,9 +48,15 @@ entrega el profesor al activar el reloj):
   llave de idempotencia estable. Termina sin error mientras no haya ciclo
   abierto; no puede enviar de verdad todavía porque la API key de
   submissions no existe hasta que el profesor active la competencia.
-- ⬜ Monitoreo de drift y reentrenamiento en producción (necesita
-  submissions reales para tener algo que monitorear).
-- ⬜ Dashboard (bono).
+- ✅ Monitoreo, drift y decisión de reentrenamiento (`src/evaluate.py`):
+  une predicción con realidad, calcula accuracy por estación y ciclo,
+  vigila las tres señales de la guía y decide mantener/investigar/
+  reentrenar con umbrales justificados. Corre tras cada recolección.
+- ✅ Estrategia de rollback (`src/rollback.py`, bono): vuelve a un champion
+  anterior verificando primero que cargue, y deja la decisión registrada.
+- ✅ Dashboard (bono): [`dashboard/`](dashboard/README.md) — estado en vivo
+  leído con la llave pública de solo lectura.
+- ✅ MLflow (bono): barrido de experimentos en `src/sweep.py`.
 
 ## Collector incremental
 
