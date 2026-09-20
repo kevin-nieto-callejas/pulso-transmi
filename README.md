@@ -20,6 +20,9 @@ entrega el profesor al activar el reloj):
   observaciones).
 - 📓 **Bitácora del proyecto** — qué se construyó, qué se rompió, cómo se
   detectó y qué se decidió: [`docs/BITACORA.md`](docs/BITACORA.md).
+- 📤 **Cómo enviar predicciones** — el contrato exacto, las reglas que no se
+  pueden romper, los códigos de error y los problemas reales que ya nos
+  pasaron: [`.claude/skills/enviar-predicciones/`](.claude/skills/enviar-predicciones/SKILL.md).
 - ✅ Análisis exploratorio completo: calidad de datos, estacionalidad,
   correlaciones, feature engineering, selección de features y
   validación cruzada temporal — ver [`eda/EDA_REPORT.md`](eda/EDA_REPORT.md).
