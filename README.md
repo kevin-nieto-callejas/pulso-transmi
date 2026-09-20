@@ -18,6 +18,8 @@ entrega el profesor al activar el reloj):
 
 - ✅ SDK instalado, histórico descargado (12 estaciones, 45 días, 51.840
   observaciones).
+- 📄 **Informe final** — qué cambió, qué funcionó, qué no, y qué haríamos
+  después: [`docs/INFORME_FINAL.md`](docs/INFORME_FINAL.md).
 - 📓 **Bitácora del proyecto** — qué se construyó, qué se rompió, cómo se
   detectó y qué se decidió: [`docs/BITACORA.md`](docs/BITACORA.md).
 - 📤 **Cómo enviar predicciones** — el contrato exacto, las reglas que no se
