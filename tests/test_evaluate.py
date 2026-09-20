@@ -7,14 +7,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 import evaluate  # noqa: E402
 
 
-def _historial(accuracies, station_id=None):
-    """Historial de ciclos: station_id None = fila total del ciclo."""
-    base = pd.Timestamp.now(tz="UTC") - pd.Timedelta(hours=len(accuracies))
+def _historial(accuracies, station_id=None, minutos=60):
+    """Historial de ciclos: station_id None = fila total del ciclo.
+
+    Los ciclos se colocan hacia atras desde ahora, separados `minutos`.
+    """
+    ahora = pd.Timestamp.now(tz="UTC")
+    n = len(accuracies)
     return pd.DataFrame([
-        {"cycle_id": f"cyc_{i}", "station_id": station_id,
-         "accuracy": a, "computed_at": (base + pd.Timedelta(hours=i)).isoformat()}
+        {"cycle_id": f"cyc_{i}", "station_id": station_id, "accuracy": a,
+         "computed_at": (ahora - pd.Timedelta(minutes=minutos * (n - 1 - i))).isoformat()}
         for i, a in enumerate(accuracies)
     ])
+
+
+def _dia_completo(accuracy_media, n=26):
+    """Un dia de ciclos alrededor de una media, con la variacion por hora que
+    se midio de verdad en el simulacro (dia ~85, madrugada ~72)."""
+    import math
+    return [accuracy_media + 7 * math.sin(2 * math.pi * i / 24) for i in range(n)]
 
 
 def test_solo_se_evaluan_predicciones_con_realidad_conocida() -> None:
@@ -58,19 +69,42 @@ def test_el_accuracy_del_ciclo_no_pondera_por_volumen() -> None:
 def test_un_solo_ciclo_malo_no_dispara_alarma() -> None:
     """Una hora punta atipica, un partido o un aguacero producen un ciclo
     malo. Reentrenar por eso seria reaccionar al ruido."""
-    historial = _historial([86.5, 86.2, 70.0])  # solo el ultimo esta mal
+    historial = _historial(_dia_completo(86.6)[:-1] + [70.0])
+
+    assert evaluate.detectar_degradacion(historial, metrica_esperada=86.61) is None
+
+
+def test_la_madrugada_no_puede_disparar_falsa_alarma() -> None:
+    """Regresion del hallazgo mas importante del simulacro: medido contra
+    datos reales, un ciclo de madrugada da ~72 y uno de mediodia ~85, sin que
+    nada falle. Comparar los ultimos 3 ciclos contra la validacion declaraba
+    degradacion TODAS LAS NOCHES. La ventana de 24 h cubre todas las horas,
+    asi que es comparable con la metrica de validacion."""
+    dia = _dia_completo(86.6)
+    # Las tres ultimas lecturas son de madrugada: muy por debajo de 86.61.
+    dia[-3:] = [72.2, 74.9, 73.5]
+    historial = _historial(dia)
 
     assert evaluate.detectar_degradacion(historial, metrica_esperada=86.61) is None
 
 
 def test_degradacion_sostenida_si_dispara_alarma() -> None:
-    historial = _historial([86.5, 80.0, 79.5, 78.0])  # los 3 ultimos, caidos
+    """Cuando cae el dia COMPLETO, no solo unas horas, si es degradacion."""
+    historial = _historial(_dia_completo(80.0))  # todo el dia 6 puntos abajo
 
     senal = evaluate.detectar_degradacion(historial, metrica_esperada=86.61)
 
     assert senal is not None
     assert senal.tipo == "performance"
-    assert "3 ciclos seguidos" in senal.descripcion
+    assert "24 h" in senal.descripcion
+
+
+def test_no_se_juzga_con_media_ventana() -> None:
+    """Con pocas horas evaluadas, la muestra esta sesgada por la franja
+    horaria que toco. Mejor no opinar que opinar mal."""
+    historial = _historial([72.0, 73.0, 71.5, 74.0])  # solo 4 ciclos
+
+    assert evaluate.detectar_degradacion(historial, metrica_esperada=86.61) is None
 
 
 def test_data_drift_compara_cada_estacion_contra_si_misma() -> None:

@@ -134,32 +134,58 @@ def accuracy_movil(historial: pd.DataFrame, horas: int = 24) -> float | None:
 # --- Paso 3: las tres senales ----------------------------------------------
 
 def detectar_degradacion(historial: pd.DataFrame, metrica_esperada: float) -> Senal | None:
-    """Performance drift: el accuracy cae y SE MANTIENE caido.
+    """Performance drift, comparando SIEMPRE ventanas de 24 h completas.
 
-    Exigir persistencia es deliberado. Un solo ciclo malo puede ser una hora
-    punta atipica, un partido o un aguacero; reentrenar por eso seria
-    reaccionar al ruido.
+    Corregido tras un simulacro (`src/simulate_cycle.py`) que midio ciclos
+    reales a distintas horas del dia:
+
+        09:45 mañana  85.73     21:45 noche      80.05
+        15:45 tarde   85.47     03:45 madrugada  74.99
+                                22:45 noche      72.17
+
+    Trece puntos de diferencia sin que nada falle: de madrugada la demanda es
+    baja y WAPE castiga mucho los errores sobre valores pequenos. La version
+    anterior comparaba los ultimos 3 ciclos contra la metrica de validacion y
+    habria declarado degradacion TODAS LAS NOCHES, con riesgo de disparar un
+    reentrenamiento por nada.
+
+    La ventana movil de 24 h -la que pide la guia- resuelve el problema
+    porque cubre todas las horas del dia, igual que la validacion con la que
+    se compara. Por eso tambien se exige que la ventana este razonablemente
+    completa antes de juzgar: media ventana vuelve a ser una muestra sesgada
+    por la hora.
     """
-    # Sin historial todavia (o una tabla vacia, que PostgREST devuelve sin
-    # columnas) no hay degradacion que detectar: es el estado normal antes de
-    # que se evalue el primer ciclo.
     if historial.empty or "station_id" not in historial.columns:
         return None
 
-    totales = historial[historial["station_id"].isna()].sort_values("computed_at")
-    if len(totales) < CICLOS_DE_PERSISTENCIA:
+    totales = historial[historial["station_id"].isna()].copy()
+    if totales.empty:
         return None
+    totales["computed_at"] = pd.to_datetime(totales["computed_at"], utc=True)
+    totales = totales.sort_values("computed_at")
 
-    ultimos = totales.tail(CICLOS_DE_PERSISTENCIA)
-    caidas = metrica_esperada - ultimos["accuracy"]
-    if (caidas > CAIDA_SIGNIFICATIVA).all():
-        promedio = float(ultimos["accuracy"].mean())
+    ahora = pd.Timestamp.now(tz="UTC")
+    ventanas = []
+    for i in range(CICLOS_DE_PERSISTENCIA):
+        fin = ahora - pd.Timedelta(hours=i)
+        inicio = fin - pd.Timedelta(hours=24)
+        ventana = totales[(totales["computed_at"] > inicio) & (totales["computed_at"] <= fin)]
+        # Con ciclos de una hora, 24 h son ~24 ciclos. Se exige al menos la
+        # mitad para no comparar una franja horaria suelta contra un promedio
+        # de dia completo.
+        if len(ventana) < 12:
+            return None
+        ventanas.append(float(ventana["accuracy"].mean()))
+
+    caidas = [metrica_esperada - v for v in ventanas]
+    if all(c > CAIDA_SIGNIFICATIVA for c in caidas):
+        promedio = sum(ventanas) / len(ventanas)
         return Senal(
             tipo="performance",
             descripcion=(
-                f"El accuracy lleva {CICLOS_DE_PERSISTENCIA} ciclos seguidos por debajo de lo "
-                f"esperado: {promedio:.2f} frente a {metrica_esperada:.2f} de la validacion "
-                f"(caida media de {float(caidas.mean()):.2f} puntos)."
+                f"La ventana movil de 24 h lleva {CICLOS_DE_PERSISTENCIA} lecturas seguidas por "
+                f"debajo de lo esperado: {promedio:.2f} frente a {metrica_esperada:.2f} de la "
+                f"validacion (caida media de {sum(caidas)/len(caidas):.2f} puntos)."
             ),
             valor=promedio, umbral=metrica_esperada - CAIDA_SIGNIFICATIVA,
             accion="Investigar antes de reentrenar: revisar si la caida se concentra en pocas estaciones u horizontes.",
