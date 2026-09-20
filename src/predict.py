@@ -21,6 +21,7 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
+ARTIFACTS = ROOT / "artifacts"
 
 sys.path.insert(0, str(ROOT / "src"))
 from features import HORIZONS_MINUTES, build_feature_frame  # noqa: E402
@@ -43,14 +44,36 @@ def get_champion() -> dict:
     return rows[0]
 
 
-def load_model_from_storage(artifact_location: str) -> dict:
+def load_model_from_storage(artifact_location: str, use_cache: bool = True) -> dict:
+    """Descarga el artefacto del champion desde Supabase Storage.
+
+    Guarda una copia local y la reutiliza si ya existe. El champion actual es
+    un ensamble de 38 MB y la inferencia corre una vez por ciclo: sin cache
+    serian ~6 GB de descarga a la semana, muy por encima de lo que permite el
+    plan gratuito de Supabase. Quedarse sin cuota a mitad de competencia
+    significa dejar de entregar, y ninguna mejora de accuracy compensa eso.
+
+    El nombre del artefacto incluye la version, asi que un champion nuevo
+    nunca reutiliza por error el archivo del anterior.
+    """
     bucket, path = artifact_location.replace("supabase-storage://", "").split("/", 1)
+    local = ARTIFACTS / path
+
+    if use_cache and local.exists():
+        print(f"Modelo tomado de cache local: {local.name} ({local.stat().st_size / 1024 / 1024:.1f} MB)")
+        return joblib.load(local)
+
     url = os.environ["SUPABASE_URL"].rstrip("/")
     key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ["SUPABASE_KEY"]
     headers = {"apikey": key, "Authorization": f"Bearer {key}"}
-    with httpx.Client(timeout=60.0) as client:
+    with httpx.Client(timeout=120.0) as client:
         response = client.get(f"{url}/storage/v1/object/{bucket}/{path}", headers=headers)
         response.raise_for_status()
+
+    if use_cache:
+        ARTIFACTS.mkdir(exist_ok=True)
+        local.write_bytes(response.content)
+        print(f"Modelo descargado y cacheado: {local.name} ({len(response.content) / 1024 / 1024:.1f} MB)")
     return joblib.load(io.BytesIO(response.content))
 
 
