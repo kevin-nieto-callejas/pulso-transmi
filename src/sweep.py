@@ -39,8 +39,6 @@ from pathlib import Path
 
 import mlflow
 import pandas as pd
-from xgboost import XGBRegressor
-
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -79,18 +77,52 @@ def tracking_uri() -> str:
     return f"sqlite:///{base.as_posix()}/mlflow.db"
 
 
-def espacio_de_busqueda(rng: random.Random) -> dict:
-    """Una combinacion al azar del espacio de hiperparametros."""
-    return {
-        "n_estimators": rng.choice([200, 300, 400, 600, 800, 1200]),
-        "max_depth": rng.choice([4, 5, 6, 7, 8, 10]),
-        "learning_rate": rng.choice([0.01, 0.02, 0.05, 0.08, 0.1]),
-        "subsample": rng.choice([0.6, 0.7, 0.8, 0.9, 1.0]),
-        "colsample_bytree": rng.choice([0.6, 0.7, 0.8, 0.9, 1.0]),
-        "min_child_weight": rng.choice([1, 3, 5, 10]),
-        "reg_lambda": rng.choice([0.5, 1.0, 2.0, 5.0]),
-        "reg_alpha": rng.choice([0.0, 0.1, 0.5, 1.0]),
+def espacio_de_busqueda(rng: random.Random, familia: str) -> dict:
+    """Una combinacion al azar del espacio de hiperparametros.
+
+    Cada familia de boosting tiene sus propios parametros: forzarlas a
+    compartir uno solo obligaria a quedarse con el minimo comun, que es justo
+    lo contrario de explorar.
+    """
+    if familia == "xgboost":
+        return {
+            "n_estimators": rng.choice([200, 300, 400, 600, 800, 1200, 1600, 2000]),
+            "max_depth": rng.choice([4, 5, 6, 7, 8, 10, 12]),
+            "learning_rate": rng.choice([0.005, 0.01, 0.02, 0.05, 0.08, 0.1]),
+            "subsample": rng.choice([0.5, 0.6, 0.7, 0.8, 0.9, 1.0]),
+            "colsample_bytree": rng.choice([0.5, 0.6, 0.7, 0.8, 0.9, 1.0]),
+            "min_child_weight": rng.choice([1, 3, 5, 10, 20]),
+            "reg_lambda": rng.choice([0.0, 0.5, 1.0, 2.0, 5.0, 10.0]),
+            "reg_alpha": rng.choice([0.0, 0.1, 0.5, 1.0, 2.0]),
+        }
+    if familia == "lightgbm":
+        return {
+            "n_estimators": rng.choice([300, 600, 900, 1200, 1500, 2000]),
+            "num_leaves": rng.choice([31, 63, 127, 255]),
+            "learning_rate": rng.choice([0.005, 0.01, 0.02, 0.05, 0.08]),
+            "subsample": rng.choice([0.6, 0.7, 0.8, 0.9, 1.0]),
+            "colsample_bytree": rng.choice([0.5, 0.6, 0.7, 0.8, 0.9]),
+            "min_child_samples": rng.choice([10, 20, 40, 80]),
+            "reg_lambda": rng.choice([0.0, 0.5, 1.0, 2.0, 5.0]),
+        }
+    return {  # catboost
+        "iterations": rng.choice([300, 600, 900, 1200, 1500]),
+        "depth": rng.choice([4, 6, 8, 10]),
+        "learning_rate": rng.choice([0.01, 0.03, 0.05, 0.08, 0.1]),
+        "l2_leaf_reg": rng.choice([1, 3, 5, 10]),
     }
+
+
+def construir_modelo(familia: str, params: dict, semilla: int):
+    from catboost import CatBoostRegressor
+    from lightgbm import LGBMRegressor
+    from xgboost import XGBRegressor
+
+    if familia == "xgboost":
+        return XGBRegressor(**params, random_state=semilla, n_jobs=-1, tree_method="hist")
+    if familia == "lightgbm":
+        return LGBMRegressor(**params, random_state=semilla, n_jobs=-1, verbose=-1)
+    return CatBoostRegressor(**params, random_seed=semilla, verbose=0, allow_writing_files=False)
 
 
 def conjuntos_de_features(observations: pd.DataFrame) -> dict[str, list[str]]:
@@ -129,16 +161,18 @@ def main() -> None:
     print(f"Backend de MLflow: {tracking_uri()}")
     print(f"Registrando en MLflow: experimento '{EXPERIMENT_NAME}' ({args.n_trials} intentos, {args.n_splits} cortes)")
 
+    familias = ["xgboost", "lightgbm", "catboost"]
     resultados = []
     fallidos = 0
     for i in range(1, args.n_trials + 1):
-        params = espacio_de_busqueda(rng)
+        familia = rng.choice(familias)
+        params = espacio_de_busqueda(rng, familia)
         nombre_features = rng.choice(list(variantes))
         columnas = variantes[nombre_features]
-        inicio = time.monotonic()
 
         try:
-            accuracy, duracion = correr_intento(i, params, nombre_features, columnas, feature_frame, data_cutoff, args)
+            accuracy, duracion = correr_intento(
+                i, familia, params, nombre_features, columnas, feature_frame, data_cutoff, args)
         except Exception as exc:
             # Un barrido largo no puede morirse por un intento. Causas tipicas:
             # contencion de SQLite si algo mas consulta la base al tiempo, o una
@@ -148,8 +182,10 @@ def main() -> None:
             print(f"  [{i:>4}/{args.n_trials}] FALLO ({type(exc).__name__}: {exc}). Se continua.")
             continue
 
-        resultados.append({"trial": i, "feature_set": nombre_features, "accuracy": accuracy, **params})
-        print(f"  [{i:>4}/{args.n_trials}] {nombre_features:16s} accuracy={accuracy:.2f}  ({duracion:.0f}s)")
+        resultados.append({"trial": i, "familia": familia, "feature_set": nombre_features,
+                           "accuracy": accuracy, **params})
+        print(f"  [{i:>4}/{args.n_trials}] {familia:9s} {nombre_features:16s} "
+              f"accuracy={accuracy:.2f}  ({duracion:.0f}s)")
 
         # Guardado incremental: si el proceso se corta, no se pierde el avance.
         if i % 10 == 0:
@@ -172,22 +208,23 @@ def main() -> None:
     )
 
 
-def correr_intento(i, params, nombre_features, columnas, feature_frame, data_cutoff, args) -> tuple[float, float]:
+def correr_intento(i, familia, params, nombre_features, columnas, feature_frame, data_cutoff, args) -> tuple[float, float]:
     """Ejecuta y registra un experimento. Devuelve (accuracy, segundos)."""
     inicio = time.monotonic()
     with mlflow.start_run(run_name=f"trial-{i:04d}"):
         mlflow.log_params(params)
+        mlflow.log_param("familia", familia)
         mlflow.log_param("feature_set", nombre_features)
         mlflow.log_param("n_features", len(columnas))
         mlflow.log_param("n_splits", args.n_splits)
         # Linaje de datos: hasta que instante vio datos este experimento.
         mlflow.log_param("data_cutoff", data_cutoff)
         mlflow.set_tag("etapa", "exploracion")
-        mlflow.set_tag("modelo", "XGBRegressor")
+        mlflow.set_tag("modelo", familia)
 
-        modelo_params = {**params, "random_state": SEED, "n_jobs": -1, "tree_method": "hist"}
+        constructor = lambda **_: construir_modelo(familia, params, SEED)  # noqa: E731
         accuracy = evaluate_candidate(
-            XGBRegressor, columnas, modelo_params, feature_frame, n_splits=args.n_splits,
+            constructor, columnas, {}, feature_frame, n_splits=args.n_splits,
         )
         mlflow.log_metric("accuracy", accuracy)
 
@@ -198,9 +235,7 @@ def correr_intento(i, params, nombre_features, columnas, feature_frame, data_cut
         if args.desglose_horizontes:
             for horizonte in HORIZONS_MINUTES:
                 subset = feature_frame[feature_frame["horizon_minutes"] == horizonte]
-                acc_h = evaluate_candidate(
-                    XGBRegressor, columnas, modelo_params, subset, n_splits=args.n_splits,
-                )
+                acc_h = evaluate_candidate(constructor, columnas, {}, subset, n_splits=args.n_splits)
                 mlflow.log_metric(f"accuracy_h{horizonte}", acc_h)
 
         duracion = time.monotonic() - inicio
