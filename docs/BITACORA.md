@@ -203,7 +203,7 @@ conclusión — el propio error de interpretación se corrigió midiendo más.
 
 ### 6. El detector de drift se tapaba a sí mismo
 
-**Síntoma:** ninguno; los 32 tests pasaban.
+**Síntoma:** ninguno; los 32 tests que existían entonces pasaban.
 
 **Cómo se detectó:** una batería de pruebas de esfuerzo
 (`src/stress_test.py`) que mide sensibilidad y falsas alarmas a escala, en
@@ -307,7 +307,7 @@ Registradas porque la guía valora poder demostrar el estado, no afirmarlo:
   historial del repositorio.
 - Reproducibilidad: el artefacto del champion se descarga desde Storage y
   vuelve a predecir en un entorno limpio (así opera GitHub Actions).
-- Pruebas: 32 tests automatizados en CI, incluidos casos de regresión de cada
+- Pruebas: 36 tests automatizados en CI, incluidos casos de regresión de cada
   error descrito arriba.
 - Ciclo completo: un simulacro con 48 targets y cuatro horizontes recorre
   predicción, emparejamiento con la realidad, métricas y limpieza, y verifica

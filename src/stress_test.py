@@ -1,6 +1,6 @@
 """Bateria de pruebas de esfuerzo del sistema completo.
 
-Hasta aqui se probaron piezas sueltas: 32 tests unitarios, un simulacro de un
+Hasta aqui se probaron piezas sueltas: tests unitarios, un simulacro de un
 ciclo y algunas corridas contra la API. Eso deja sin cubrir lo que mas
 importa el dia de la competencia: como se comporta el sistema COMPLETO bajo
 cientos de condiciones distintas, y que tan mal se pone cuando algo no sale
