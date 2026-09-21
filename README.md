@@ -26,6 +26,8 @@ inferencia entregando solos, 36 tests en verde y los cinco bonos cubiertos.
   hacer cuando algo falla: [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 - 📄 **Informe final** — qué cambió, qué funcionó, qué no, y qué haríamos
   después: [`docs/INFORME_FINAL.md`](docs/INFORME_FINAL.md).
+- 🔎 **Hallazgos** — lo que aprendimos midiendo, agrupado por tema:
+  [`docs/HALLAZGOS.md`](docs/HALLAZGOS.md).
 - 📓 **Bitácora del proyecto** — qué se construyó, qué se rompió, cómo se
   detectó y qué se decidió: [`docs/BITACORA.md`](docs/BITACORA.md).
 - 📤 **Cómo enviar predicciones** — el contrato exacto, las reglas que no se

@@ -36,6 +36,7 @@ trazabilidad, capacidad de recuperación y decisiones justificadas."*
 | Documento | Para qué |
 |---|---|
 | [`README.md`](../README.md) | Estado, arquitectura, decisiones, cómo reproducir |
+| [`docs/HALLAZGOS.md`](HALLAZGOS.md) | **Todo lo aprendido midiendo, por tema** |
 | [`docs/BITACORA.md`](BITACORA.md) | Cronología y los problemas encontrados |
 | [`docs/RUNBOOK.md`](RUNBOOK.md) | Qué hacer el día de competencia |
 | [`docs/INFORME_FINAL.md`](INFORME_FINAL.md) | Entregable 11 de la guía |
