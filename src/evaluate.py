@@ -61,12 +61,18 @@ CICLOS_POR_VENTANA = 24
 # no se puede hablar de degradacion: haria falta saber contra que.
 VENTANAS_DE_REFERENCIA = 24
 
-# Se conserva como referencia documental: es la caida medida al quitarle al
-# modelo la estacionalidad semanal, o sea la magnitud de un drift que rompe
-# una feature central. Queda por DEBAJO del ruido de una ventana de 24 h
-# (3 sigmas = 4.5 puntos), asi que este detector no la vera; hacen falta
-# ventanas mas largas para eso. Es una limitacion conocida, no un descuido.
-CAIDA_POR_PERDER_LAG_SEMANAL = 2.11
+# Referencia documental del PISO de este detector. 2.11 es la caida que sufre
+# Random Forest cuando se le quita la estacionalidad semanal: sirve como
+# ejemplo concreto de "un drift rompe una feature central". Queda por DEBAJO
+# del ruido de una ventana de 24 h (3 sigmas = 4.5 puntos), asi que este
+# detector NO la veria; hacen falta ventanas mas largas. Es una limitacion
+# conocida, no un descuido.
+#
+# Ojo con la interpretacion: 2.11 describe a ESE modelo, no al dato ni al
+# champion. El champion vigente (catboost_sin_semanal) no usa `lag_672` ni
+# ninguna feature semanal, asi que ese drift en particular no lo afecta. El
+# numero se queda como escala de referencia del umbral, no como riesgo activo.
+DEGRADACION_DE_REFERENCIA = 2.11
 
 # Cambio en la demanda media de una estacion que amerita mirarla. Origen: en
 # el historico, la desviacion tipica entre estaciones es grande, asi que se

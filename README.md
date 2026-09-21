@@ -16,7 +16,7 @@ Las cinco fases de la guía están implementadas y operando. Lo único que
 falta es evidencia con ciclos reales, que depende de que el docente active
 la competencia: el reloj sigue en `waiting`.
 
-**Estado en una línea:** champion `ensamble_extendido` con 86.61 de
+**Estado en una línea:** champion `catboost_sin_semanal` con 86.76 de
 accuracy, una submission aceptada en la ronda de práctica, collector e
 inferencia entregando solos, 36 tests en verde y los cinco bonos cubiertos.
 
@@ -182,13 +182,14 @@ python src/infer.py
 
 ## Modelo
 
-`src/train.py` entrena y compara 12 candidatos con la misma validación
+`src/train.py` entrena y compara 13 candidatos con la misma validación
 cruzada temporal (5 folds, `TimeSeriesSplit`, nunca aleatoria). Evidencia
 completa en [`eda/reports/candidate_comparison.csv`](eda/reports/candidate_comparison.csv):
 
 | Candidato | Features | Accuracy (CV) |
 |---|---:|---:|
-| **`ensamble_extendido`** (champion vigente) | 49 + one-hot de estación | **86.61** |
+| **`catboost_sin_semanal`** (champion vigente) | 45 + one-hot de estación | **86.76** |
+| `ensamble_extendido` (champion anterior → `historical`) | 49 + one-hot de estación | 86.61 |
 | `xgboost_extendido` | 49 | 86.47 |
 | `lgbm_extendido` | 49 | 86.44 |
 | `catboost_extendido` | 49 | 86.41 |
@@ -199,24 +200,34 @@ completa en [`eda/reports/candidate_comparison.csv`](eda/reports/candidate_compa
 | `xgboost_tuned2` (más árboles, learning rate más bajo) | 16 | 83.60 |
 | `rf_full` | 16 | 82.92 |
 | `gbr_full` | 16 | 80.82 |
-| `rf_no_weekly_lag` (prueba de fragilidad) | 13 (sin `lag_672`/`roll_mean_96`/`roll_std_96`) | 80.81 |
+| `rf_no_weekly_lag` (RF sin estacionalidad semanal) | 13 (sin `lag_672`/`roll_mean_96`/`roll_std_96`) | 80.81 |
 | *baseline ingenuo (repetir el valor de hace 24 h)* | *0* | *77.89* |
 
-El champion es un ensamble de LightGBM + XGBoost + CatBoost: tres familias
-de boosting se equivocan en sitios distintos, así que promediarlas le gana a
-cualquiera por separado (86.61 contra 86.47 del mejor individual).
+El champion es **CatBoost solo, con 45 features**: el conjunto extendido
+menos las cuatro de estacionalidad semanal (`lag_672`, `lag_1344`,
+`roll_mean_96`, `roll_std_96`). Salió del barrido de 657 experimentos, no de
+elegir a mano: sus hiperparámetros (`depth=10`, `learning_rate=0.08`) están
+lejos del `8`/`0.03` que habíamos puesto por intuición.
+
+Le ganó al ensamble de LightGBM + XGBoost + CatBoost que era champion
+(86.76 contra 86.61) y además es más simple: un solo modelo de 19 MB en vez
+de tres de 38 MB en total, y una dependencia de producción en vez de tres.
+El ensamble sigue en la tabla porque sigue siendo el segundo mejor.
 
 Desglose del champion por horizonte (misma validación, filtrando cada
 subconjunto):
 
 | Horizonte | Accuracy |
 |---|---:|
-| +15 min | 86.95 |
-| +30 min | 86.52 |
-| +45 min | 86.23 |
-| +60 min | 85.99 |
+| +15 min | 86.87 |
+| +30 min | 86.58 |
+| +45 min | 86.29 |
+| +60 min | 86.09 |
 
-Además de esos 12 candidatos elegidos a mano, `src/sweep.py` explora cientos
+Predecir una hora adelante cuesta **0.78 puntos** frente a predecir 15
+minutos, y la caída es pareja: no hay un horizonte donde el modelo se rompa.
+
+Además de esos candidatos elegidos a mano, `src/sweep.py` explora cientos
 de combinaciones al azar con validación más barata y las registra en MLflow
 ([`eda/reports/sweep_results.csv`](eda/reports/sweep_results.csv)). Esos
 números **no son comparables** con los de arriba —se miden con 3 cortes en
@@ -253,15 +264,18 @@ EDA ya había mostrado que la demanda promedio varía más de 3x entre
 estaciones; afinar hiperparámetros de XGBoost sin esa señal
 (`xgboost_tuned2`) sigue moviendo la aguja mucho menos.
 
-`rf_no_weekly_lag` existe a propósito para medir la fragilidad del
-modelo: ¿qué tan mal quedaríamos si `lag_672` (demanda de hace una
-semana) dejara de ser confiable por drift? La brecha real es de **2.11
-puntos** (antes 0.87, con el esquema de un solo horizonte) — mayor que
-antes, algo esperable: en horizontes largos el modelo depende un poco
-más de la estacionalidad semanal porque los lags cortos (`lag_1`,
-`lag_4`) ya no son tan informativos sobre el futuro lejano. Sigue sin ser
-una brecha catastrófica, pero es una señal real a vigilar si el patrón
-semanal cambia durante la competencia.
+`rf_no_weekly_lag` existe a propósito para medir cuánto se apoya el modelo
+en `lag_672` (demanda de hace una semana): ¿qué tan mal quedaríamos si esa
+señal dejara de ser confiable por drift? Para Random Forest la respuesta son
+**2.11 puntos**.
+
+Esa pregunta terminó respondiéndose al revés de lo esperado. El barrido
+mostró que las mejores configuraciones **no usaban** `lag_672`, y al medirlo
+con el protocolo oficial quitar esas cuatro features sube a CatBoost de
+86.29 a 86.76. O sea que 2.11 no mide una fragilidad del *dato*: mide cuánto
+se **sobreajusta** un modelo concreto a esa señal. El champion vigente no
+usa ninguna feature semanal, así que ese drift en particular ya no es un
+riesgo para nosotros — pasó de ser "el riesgo principal" a no aplicar.
 
 **Regla de promoción real, no solo "el número más alto":** `train.py`
 consulta el champion vigente en Supabase antes de decidir. Un candidato
@@ -327,12 +341,12 @@ API Pulso TransMi  →  collector  →  Supabase (Postgres)  →  experimentos /
 - **`lag_672` (demanda de hace exactamente 1 semana) es la feature más
   fuerte** (91.8% de importancia en el Random Forest de selección de
   features) — hay estacionalidad semanal muy marcada en el histórico.
-  Esto encendió una alarma inicial sobre fragilidad ante drift; entrenar
-  sin esa feature (ver sección "Modelo") cuesta 2.11 puntos de accuracy —
-  no catastrófico, pero tampoco despreciable, y mayor que en el esquema
-  de un solo horizonte (0.87) porque en horizontes largos los lags cortos
-  pesan menos. No se debe confundir el accuracy en el histórico estático
-  con un problema resuelto.
+  Esto encendió una alarma inicial sobre fragilidad ante drift, y resultó
+  ser la conclusión equivocada. Quitarle esa feature a Random Forest cuesta
+  2.11 puntos, pero quitársela a CatBoost lo **mejora** (86.29 → 86.76, ver
+  sección "Modelo"), y por eso el champion vigente no la usa. La importancia
+  que reporta un Random Forest mide cuánto *usa* una señal, no cuánto
+  *ayuda*.
 - **Horizonte directo (una familia de modelos con `horizon_minutes` como
   feature) en vez de recursivo (encadenar 4 predicciones de un paso)**:
   la API pide +15/+30/+45/+60 min en cada ciclo. Un modelo entrenado solo

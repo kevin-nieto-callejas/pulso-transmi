@@ -1,5 +1,6 @@
 {
   "candidates": {
+    "catboost_sin_semanal": 86.76483720778342,
     "lgbm_extendido": 86.43669281652515,
     "catboost_extendido": 86.40502209813322,
     "xgboost_extendido": 86.4687970437383,
@@ -7,25 +8,25 @@
     "rf_full": 82.92038489700536,
     "rf_no_weekly_lag": 80.81481752888848,
     "gbr_full": 80.81759460976146,
-    "extra_trees_full": 84.36913121976312,
+    "extra_trees_full": 84.36913121976313,
     "rf_tuned": 84.5457775728079,
     "xgboost_full": 84.28238409373544,
     "xgboost_station": 85.2201953457543,
     "xgboost_tuned2": 83.60422399268461
   },
   "accuracy_by_horizon": {
-    "+15min": 86.94987486908234,
-    "+30min": 86.51935132402532,
-    "+45min": 86.22735203202843,
-    "+60min": 85.98658584392341
+    "+15min": 86.87346398127121,
+    "+30min": 86.58383738683922,
+    "+45min": 86.28896480274447,
+    "+60min": 86.09188999265817
   },
   "fragility_gap": 2.10556736811688,
-  "winner_this_run": "ensamble_extendido",
-  "version_id": "ensamble_extendido-20260920T223526Z",
+  "winner_this_run": "catboost_sin_semanal",
+  "version_id": "catboost_sin_semanal-20260921T161638Z",
   "promoted": true,
   "previous_champion": {
-    "version_id": "xgboost_station-20260918T044429Z",
-    "validation_metric": 85.2201953457543,
+    "version_id": "ensamble_extendido-20260920T223526Z",
+    "validation_metric": 86.6083770961355,
     "features": [
       "hour_sin",
       "hour_cos",
@@ -43,6 +44,27 @@
       "temperature_c",
       "event_intensity",
       "horizon_minutes",
+      "lag_2",
+      "lag_3",
+      "lag_8",
+      "lag_192",
+      "lag_1344",
+      "roll_mean_8",
+      "roll_mean_48",
+      "roll_std_4",
+      "roll_max_96",
+      "roll_min_96",
+      "diff_1h",
+      "diff_1d",
+      "ratio_1h",
+      "rain_forecast",
+      "temperature_forecast",
+      "slot_mean",
+      "target_hour_sin",
+      "target_hour_cos",
+      "target_dow_sin",
+      "target_dow_cos",
+      "target_is_weekend",
       "station_02300",
       "station_03000",
       "station_05000",
@@ -58,5 +80,5 @@
     ]
   },
   "data_cutoff": "2026-09-08T23:45:00-05:00",
-  "artifact_location": "supabase-storage://model-artifacts/ensamble_extendido-20260920T223526Z.joblib"
+  "artifact_location": "supabase-storage://model-artifacts/catboost_sin_semanal-20260921T161638Z.joblib"
 }

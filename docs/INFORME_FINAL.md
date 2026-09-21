@@ -83,18 +83,23 @@ que la API entregaba desde el principio y **nunca se habían usado**. Se
 alimentaba al modelo el clima *observado* para predecir el futuro, cuando lo
 correcto es el pronóstico.
 
-Champion final: ensamble de LightGBM + XGBoost + CatBoost sobre 49 features,
-**86.61** de accuracy (baseline ingenuo: 77.89).
+Champion final: CatBoost sobre 45 features —el conjunto extendido menos la
+estacionalidad semanal—, **86.76** de accuracy (baseline ingenuo: 77.89).
+Reemplazó a un ensamble de tres familias de boosting que marcaba 86.61.
 
 ---
 
 ## 3. Qué funcionó
 
-**Medir la fragilidad antes de necesitarlo.** Se entrenó a propósito un
+**Medir lo que se supone antes de necesitarlo.** Se entrenó a propósito un
 candidato sin la estacionalidad semanal para saber cuánto se perdería si esa
-señal fallara: **2.11 puntos**. Ese número dejó de ser curiosidad cuando hubo
-que fijar el umbral de drift — es la magnitud de una degradación que rompe una
-feature central, así que por debajo de eso es ruido.
+señal fallara: **2.11 puntos** en Random Forest. El número sirvió de escala
+para fijar el umbral de drift.
+
+Y sirvió para algo que no se buscaba: cuando el barrido mostró que CatBoost
+**mejora** sin esas mismas features, quedó claro que 2.11 no medía fragilidad
+del dato sino el costo de sobreajustarse a una señal. Tener la medición hecha
+es lo que permitió reinterpretarla en vez de descubrirla tarde.
 
 **Exigir evidencia antes de reaccionar.** El monitoreo no actúa ante un ciclo
 malo. Mira la mediana de las últimas 24 horas y la compara con la de su propio
@@ -146,7 +151,10 @@ congestionados y con vigilancia interna de 8 minutos por corrida.
 **El mejor modelo pesaba 38 MB.** Descargarlo en cada ciclo serían ~6 GB por
 semana, por encima del plan gratuito de Supabase. Quedarse sin cuota a mitad
 de competencia significa dejar de entregar, y ninguna mejora de accuracy
-compensa eso. Se resolvió con caché por versión en vez de sacrificar el modelo.
+compensa eso. Se resolvió con caché por versión en vez de sacrificar el
+modelo. El champion que terminó ganando pesa 19 MB, así que el problema se
+redujo a la mitad por su cuenta — pero la caché sigue siendo lo que lo
+vuelve sostenible.
 
 ### 4.3. Errores de volumen que las pruebas pequeñas no ven
 
@@ -185,7 +193,7 @@ peor, por azar.
 El episodio dejó dos correcciones reales en el detector:
 
 **El punto de comparación estaba mal.** Se comparaba contra la métrica de
-validación (86.61), que agrupa todas las predicciones de la partición,
+validación (86.61 en ese momento), que agrupa todas las predicciones de la partición,
 mientras que el accuracy de un ciclo promedia 85.74. Son dos formas de
 agregar lo mismo; compararlas mete un sesgo de 0.87 puntos que hace
 sobre-disparar. Ahora se compara la ventana reciente contra la mediana de sus
@@ -199,9 +207,9 @@ umbral pasó a expresarse en desviaciones medidas sobre el propio historial
 catastrófico no la arrastre.
 
 Queda una limitación conocida y documentada: con ventanas de 24 horas, tres
-desviaciones son 4.5 puntos, mayor que los 2.11 que costaría perder la
-estacionalidad semanal. Ese tamaño de degradación no lo vería este detector;
-haría falta una ventana más larga, a cambio de reaccionar más tarde.
+desviaciones son 4.5 puntos. Una degradación del orden de 2 puntos no la
+vería este detector; haría falta una ventana más larga, a cambio de
+reaccionar más tarde.
 
 ### 4.5. Una intuición que resultó falsa
 
@@ -237,7 +245,7 @@ existe únicamente porque ese error ya se había cometido antes en el proyecto.
   12 predicciones emitidas no son evaluables. El código de evaluación está
   escrito y probado con datos sintéticos, pero `prediction_evaluations` y
   `cycle_metrics` están vacías.
-- **86.61 se midió sobre 45 días de histórico estático.** No hay drift en esos
+- **86.76 se midió sobre 45 días de histórico estático.** No hay drift en esos
   datos. El número puede no sostenerse cuando la ciudad cambie.
 - **El reentrenamiento no está automatizado, a propósito.** El sistema decide
   *si* conviene reentrenar; ejecutarlo sigue siendo manual. Automatizar la
@@ -249,16 +257,19 @@ existe únicamente porque ese error ya se había cometido antes en el proyecto.
   confirmó que la variación normal por hora del día no los activa.
 - **El accuracy de un ciclo suelto no es comparable con el de validación.**
   El primero promedia 85.74 con desviación 2.60 (mínimo medido: 57.79); el
-  segundo, 86.61, se calcula agrupando toda la partición. Un ciclo malo
+  segundo, 86.76, se calcula agrupando toda la partición. Un ciclo malo
   aislado no dice nada.
 - **Degradaciones menores de ~4.5 puntos no las ve el detector** con ventanas
-  de 24 horas, incluida la de 2.11 que costaría perder la estacionalidad
-  semanal. Ampliar la ventana la haría visible a cambio de reaccionar más
-  tarde; se dejó así porque reaccionar tarde a un drift pequeño es preferible
-  a reaccionar en falso a uno inexistente.
-- **La dependencia de `lag_672` sigue siendo el riesgo principal.** Cuesta 2.11
-  puntos si esa señal falla, y es exactamente el tipo de patrón que un cambio
-  de comportamiento urbano rompería.
+  de 24 horas. Ampliar la ventana las haría visibles a cambio de reaccionar
+  más tarde; se dejó así porque reaccionar tarde a un drift pequeño es
+  preferible a reaccionar en falso a uno inexistente.
+- **La dependencia de `lag_672` dejó de ser el riesgo principal.** Se la
+  señalaba como tal porque el EDA le daba 91.8% de importancia y quitarla le
+  costaba 2.11 puntos a Random Forest. Medido con 657 experimentos, resultó
+  al revés: CatBoost rinde **más** sin ella, y el champion vigente no usa
+  ninguna feature de estacionalidad semanal. Ese drift concreto ya no nos
+  afecta — lo que queda es la advertencia metodológica de que la importancia
+  reportada mide uso, no aporte.
 
 ---
 
@@ -281,8 +292,10 @@ existe únicamente porque ese error ya se había cometido antes en el proyecto.
 
 **Si hubiera más tiempo**
 7. Modelos por estación para las que más se desvíen del comportamiento común.
-8. Sustituir el ensamble por un solo modelo si la ganancia de 0.14 puntos no
-   justifica triplicar las dependencias en producción.
+8. ~~Sustituir el ensamble por un solo modelo si la ganancia de 0.14 puntos
+   no justifica triplicar las dependencias en producción.~~ **Hecho:** el
+   barrido produjo un CatBoost que además de ser más simple es más preciso
+   (86.76 contra 86.61), así que la disyuntiva desapareció.
 
 ---
 
@@ -305,5 +318,7 @@ terminaba antes de cargarlo; el simulacro que se hizo para validar el
 pipeline de evaluación fue el que destapó el problema del monitoreo.
 
 Y que en un sistema que debe operar solo, la fiabilidad vale más que la
-precisión. Un modelo de 86.61 que entrega puntualmente vence a uno de 90 que
-se queda sin cuota de almacenamiento el martes.
+precisión. Un modelo de 86.76 que entrega puntualmente vence a uno de 90 que
+se queda sin cuota de almacenamiento el martes. Que el champion final sea
+además el más liviano —19 MB contra los 38 del ensamble, una dependencia en
+vez de tres— fue coincidencia afortunada, no diseño.

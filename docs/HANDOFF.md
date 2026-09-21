@@ -73,7 +73,7 @@ cortes vía `src/revalidar.py`:
 | Extendido **completo** | 49 | 86.29 |
 | Extendido **sin lags semanales** | 45 | **86.76** |
 | Solo base sin lag semanal | 25 | **86.79** |
-| Champion vigente (ensamble) | 49 | 86.61 |
+| Ensamble (champion anterior) | 49 | 86.61 |
 
 **Quitar las cuatro features de estacionalidad semanal sube 0.47 puntos.**
 La feature que el EDA coronó como la más importante (`lag_672`, 91.8% de
@@ -81,21 +81,22 @@ importancia) es la que más le estorba a CatBoost. Lo que se medía como
 "brecha de fragilidad" (2.11 puntos) era en realidad el costo de
 sobreajustarse a ella.
 
-Consecuencia operativa: un CatBoost solo (6 MB) le gana al ensamble de tres
-modelos (38 MB). Menos dependencias en producción y menos descarga por
-ciclo.
+**Resuelto:** `catboost_sin_semanal` compitió contra los otros 12 candidatos
+con el protocolo oficial y **ganó (86.76 contra 86.61)**. Es el champion
+vigente desde el 21/09; el ensamble pasó a `historical`.
 
-`catboost_sin_semanal` ya está agregado a `build_candidates()` en
-`train.py`; la regla de promoción decide si entra.
+Consecuencia operativa: un CatBoost solo (19 MB) le ganó al ensamble de tres
+modelos (38 MB). La mitad de descarga por ciclo y dos dependencias menos en
+producción — la inferencia ya no necesita LightGBM ni XGBoost.
 
 ## 4. Estado a 21/09
 
 | | |
 |---|---|
 | **Reloj de competencia** | `waiting` — no ha empezado |
-| **Champion** | `ensamble_extendido-20260920T223526Z`, accuracy **86.61** |
+| **Champion** | `catboost_sin_semanal-20260921T161638Z`, accuracy **86.76** |
 | **Tests** | 36, todos en verde |
-| **Experimentos** | 657 en MLflow + 12 candidatos oficiales |
+| **Experimentos** | 657 en MLflow + 13 candidatos oficiales |
 | **Commits** | 41 |
 | **Entregables obligatorios** | 10.5 de 11 |
 | **Bonos** | 5 de 5 |
@@ -145,8 +146,8 @@ API del profe → collector → Supabase → experimentos/modelo
 | **Accuracy sin ponderar entre estaciones** | Es la fórmula oficial |
 | **El horizonte se mide desde el ancla real, no desde `data_cutoff`** | Si el collector va atrasado, medir mal da predicciones malas sin error visible |
 | **Paginar de 1000 en 1000** | PostgREST nunca devuelve más, sin importar el `limit` |
-| **Caché del artefacto por versión** | El ensamble pesa 38 MB; sin caché son ~6 GB/semana |
-| **Drift contra el propio historial, no contra la validación** | El accuracy por ciclo promedia 85.74; la validación dice 86.61 |
+| **Caché del artefacto por versión** | El champion pesa 19 MB (el ensamble anterior, 38); sin caché son GB por semana |
+| **Drift contra el propio historial, no contra la validación** | El accuracy por ciclo promedia 85.74; la validación dice 86.76 |
 | **Referencia de drift sin solapar con la ventana actual** | Si no, a mayor caída menos detección |
 | **Reentrenamiento manual** | Nunca se ha visto una degradación real que valide los umbrales |
 | **La API key nunca llega al navegador** | Por eso el dashboard no muestra leaderboard |
@@ -179,14 +180,16 @@ a escala, no probando casos sueltos.
 
 | Medición | Valor |
 |---|---|
-| Accuracy del champion (validación 5 cortes) | 86.61 |
-| Por horizonte | 86.95 / 86.52 / 86.23 / 85.99 |
+| Accuracy del champion (validación 5 cortes) | 86.76 |
+| Por horizonte | 86.87 / 86.58 / 86.29 / 86.09 |
 | Accuracy por ciclo suelto | media 85.74, desviación 2.60 |
 | Peor ciclo de 2.229 | 56.43 |
 | Percentil 5 | ~79 |
 | Baseline ingenuo (lag 24 h) | 77.89 |
 | Techo teórico | 88–89 |
-| Brecha de fragilidad (sin lag semanal) | 2.11 puntos |
+| Dependencia de Random Forest en el lag semanal | 2.11 puntos |
+| Efecto de quitar el lag semanal a CatBoost | **+0.47** (mejora) |
+| Tamaño del champion / del ensamble anterior | 19 MB / 38 MB |
 | Costo de 30 min de atraso del collector | −2.2 puntos |
 | Falsas alarmas de drift | 0.4 por semana |
 | Detección de caída de 6 / 10 puntos | 98% / 100% |

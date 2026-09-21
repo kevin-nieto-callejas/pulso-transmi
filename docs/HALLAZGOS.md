@@ -43,8 +43,16 @@ grande. Duplicar el cómputo empeoró.
 
 **Implica:** quitar cuatro features sube 0.47 puntos. La importancia que
 reporta un Random Forest mide cuánto *usa* una señal, no cuánto *ayuda*.
-Lo que medíamos como "brecha de fragilidad" (2.11 puntos) era el costo de
-sobreajustarse a ella.
+
+Los dos resultados conviven y ahí está lo interesante: Random Forest **sí**
+pierde 2.11 puntos sin `lag_672`, y CatBoost **gana** 0.47. No es una
+propiedad del dato sino de cada modelo. Lo que llamábamos "brecha de
+fragilidad ante drift" era el costo de sobreajustarse a esa señal.
+
+**Confirmado en el pipeline:** el candidato compitió contra los otros 12 con
+el protocolo oficial y quedó como champion (86.76 contra 86.61). El riesgo
+que el informe señalaba como principal —que `lag_672` dejara de ser fiable—
+dejó de aplicar, porque el champion ya no la usa.
 
 ### 4. Especializar por horizonte empeora
 **Creíamos:** un modelo por horizonte (+15, +30, +45, +60) sería mejor que
@@ -74,14 +82,20 @@ resultó falsa; se descartó en vez de forzarla.
 
 ### 8. El ensamble aporta poco y cuesta mucho
 **Medimos:** ensamble 86.61 contra 86.47 del mejor individual: +0.14. Pero
-pesa 38 MB contra 6 MB y necesita tres librerías en producción.
+pesa 38 MB y necesita tres librerías en producción.
 **Implica:** sin caché serían ~6 GB de descarga por semana de competencia,
 por encima del plan gratuito. La ganancia no justificaba el riesgo
 operativo.
 
+**Desenlace:** la disyuntiva se disolvió sola. El CatBoost del hallazgo 3
+resultó **más preciso y más simple** a la vez (86.76, 19 MB, una
+dependencia), así que no hubo que elegir entre precisión y operación. Vale
+anotar que fue suerte, no diseño: la decisión estaba tomada para sacrificar
+0.14 puntos si hacía falta.
+
 ### 9. Estamos cerca del techo
 **Medimos:** un modelo perfecto que conociera la media real de cada franja
-horaria alcanzaría 88–89. Nosotros vamos en ~86.8.
+horaria alcanzaría 88–89. Nosotros vamos en 86.76.
 **Implica:** quedan ~2 puntos de margen teórico. Perseguir el 90 sobre este
 histórico no es realista.
 
@@ -154,7 +168,17 @@ que una de 6 (10%).
 error — el período de referencia incluía ventanas ya contaminadas por la
 caída. Un resultado no monótono casi siempre es un bug, no un hallazgo.
 
-### 18. Un test que pasa no prueba nada
+### 18. Una etiqueta equivocada sobrevive más que un bug
+**Creíamos:** el entrenamiento imprimía "Brecha de fragilidad: 2.11 puntos" y
+el informe lo llamaba el riesgo principal del proyecto.
+**Medimos:** el número era correcto; la frase, no. Medía cuánto se apoya
+*Random Forest* en una señal, no cuánto costaría perderla.
+**Implica:** nada falla cuando el nombre está mal. El valor se imprimió
+correctamente durante días mientras el texto que lo acompañaba afirmaba lo
+contrario de lo que el dato sostenía. Un bug se delata; una interpretación
+equivocada hay que ir a buscarla.
+
+### 19. Un test que pasa no prueba nada
 **Medimos:** se rompió el collector a propósito de tres formas y se verificó
 que cada una hiciera fallar un test.
 **Implica:** sin esa comprobación, un test podría estar pasando también con
@@ -165,7 +189,7 @@ controles en verde.
 
 ## Sobre la infraestructura
 
-### 19. GitHub descarta corridas programadas
+### 20. GitHub descarta corridas programadas
 **Medimos:** 2 ejecuciones de ~28 esperadas en 7 horas. No era cuota ni
 configuración: bajo carga, GitHub no encola las atrasadas, las descarta.
 `:00` y `:30` son los minutos más congestionados.
@@ -173,13 +197,13 @@ configuración: bajo carga, GitHub no encola las atrasadas, las descarta.
 minutos. Se mitiga con más intentos en minutos impares y vigilancia interna
 por corrida.
 
-### 20. PostgREST nunca devuelve más de 1000 filas
+### 21. PostgREST nunca devuelve más de 1000 filas
 **Medimos:** pedir `limit=5000` devuelve 1000, con
 `Content-Range: 0-999/51840`.
 **Implica:** una paginación que asuma páginas más grandes corta en la
 primera. Nos cargaba 1 de 12 estaciones, y solo apareció con volumen real.
 
-### 21. Otras rarezas del entorno
+### 22. Otras rarezas del entorno
 
 | Qué | Detalle |
 |---|---|

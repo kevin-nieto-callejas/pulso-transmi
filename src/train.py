@@ -332,8 +332,18 @@ def main() -> None:
         results[name] = accuracy
         print(f"{name:20s} accuracy_mean={accuracy:.2f}  (n_features={len(feature_columns)})")
 
-    fragility_gap = results["rf_full"] - results["rf_no_weekly_lag"]
-    print(f"\nBrecha de fragilidad (rf_full - rf_no_weekly_lag): {fragility_gap:.2f} puntos")
+    # Cuanto se APOYA Random Forest en la estacionalidad semanal. Nacio como
+    # "brecha de fragilidad" -lo que perderiamos si esa senal se rompiera-,
+    # pero esa lectura resulto equivocada: no es una propiedad del dato sino
+    # de ese modelo. CatBoost MEJORA al quitarle las mismas cuatro features
+    # (ver build_candidates), y el champion vigente ya no las usa. Se conserva
+    # porque sigue midiendo algo real: que tan expuesto queda un modelo que SI
+    # se apoya en `lag_672`.
+    dependencia_rf = results["rf_full"] - results["rf_no_weekly_lag"]
+    print(
+        f"\nDependencia de Random Forest en la estacionalidad semanal "
+        f"(rf_full - rf_no_weekly_lag): {dependencia_rf:.2f} puntos"
+    )
 
     # La comparacion es lo mas caro de esta corrida (mas de una hora): se
     # persiste apenas existe, para no perderla si algo falla mas adelante.

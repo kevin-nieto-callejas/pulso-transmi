@@ -1,4 +1,5 @@
 candidato,accuracy
+catboost_sin_semanal,86.7648
 ensamble_extendido,86.6084
 xgboost_extendido,86.4688
 lgbm_extendido,86.4367

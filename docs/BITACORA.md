@@ -17,13 +17,14 @@ que avanza el proyecto, no al final.
 |---|---|
 | 1 · Comprender | Completa |
 | 2 · Construir la memoria | Completa y automatizada |
-| 3 · Experimentar | Completa (12 candidatos + baseline + 240 experimentos en MLflow) |
+| 3 · Experimentar | Completa (13 candidatos + baseline + 657 experimentos en MLflow) |
 | 4 · Operar | Submission aceptada; workflows entregando solos |
 | 5 · Aprender del error | Codigo completo y probado; falta evidencia con ciclos reales |
 
-**Modelo champion vigente:** `ensamble_extendido-20260920T223526Z` — accuracy
-**86.61** (validación temporal de 5 cortes, 4 horizontes). Ensamble de
-LightGBM + XGBoost + CatBoost sobre 49 features.
+**Modelo champion vigente:** `catboost_sin_semanal-20260921T161638Z` —
+accuracy **86.76** (validación temporal de 5 cortes, 4 horizontes). CatBoost
+sobre 45 features: el conjunto extendido menos la estacionalidad semanal.
+Salió del barrido, no de elegir a mano.
 
 **Bonos:** los cinco de la guía están cubiertos.
 
@@ -68,6 +69,26 @@ LightGBM + XGBoost + CatBoost sobre 49 features.
 - Dashboard desplegado: https://pulso-transmi-one.vercel.app
 - Simulacro de ciclo completo (`src/simulate_cycle.py`), que destapó el
   problema del monitoreo descrito abajo.
+
+### 21 de septiembre — barrido masivo y champion nuevo
+
+- Barrido de **657 experimentos** en MLflow sobre tres familias de boosting
+  (`src/sweep.py`), con validación barata de 3 cortes.
+- Las mejores configuraciones tenían algo en común inesperado: **ninguna
+  usaba `lag_672`**, la feature que el EDA había coronado como la más
+  importante (91.8%).
+- `src/revalidar.py` volvió a medir las mejores con el protocolo oficial de
+  5 cortes. Confirmado: quitar las cuatro features de estacionalidad semanal
+  sube de 86.29 a 86.76 con el mismo modelo.
+- Ese candidato se agregó a `src/train.py` y compitió contra los otros 12
+  bajo la misma validación, sin promoverlo a mano. **Ganó: 86.76 contra
+  86.61 del ensamble**, que pasó a `historical`.
+- Efecto secundario: el artefacto bajó de 38 MB a 19 MB y la inferencia dejó
+  de necesitar LightGBM y XGBoost en producción.
+- Se corrigió la etiqueta "brecha de fragilidad" en el código y los
+  documentos: medía otra cosa de la que decía (ver problema 7).
+- Catálogo de hallazgos ([`HALLAZGOS.md`](HALLAZGOS.md)) para no volver a
+  descubrir lo aprendido.
 
 ---
 
@@ -193,9 +214,10 @@ ventanas anteriores, con umbral de tres desviaciones medidas sobre ese mismo
 historial, y usando mediana en vez de promedio para que un ciclo catastrófico
 no arrastre la ventana.
 
-**Limitación documentada:** tres desviaciones sobre 24 horas son 4.5 puntos,
-más que los 2.11 que cuesta perder la estacionalidad semanal. Esa magnitud de
-degradación no la ve este detector.
+**Limitación documentada:** tres desviaciones sobre 24 horas son 4.5 puntos.
+Una degradación de la escala de 2.11 puntos —la que sufre Random Forest al
+perder la estacionalidad semanal, usada aquí solo como orden de magnitud— no
+la ve este detector. Hacen falta ventanas más largas.
 
 **Lo que enseñó:** dos cosas. Que un accuracy por ciclo y uno de validación
 no son comparables aunque se llamen igual. Y que cinco mediciones no son una
@@ -237,7 +259,34 @@ chequeos. Las 101 alarmas de una serie de 43 días resultaron ser 3
 episodios: una misma excursión dispara muchos chequeos seguidos. La métrica
 que importa es cada cuánto alguien tiene que ir a mirar.
 
-### 7. Otros arreglos menores
+### 7. La métrica se llamaba "fragilidad" y medía otra cosa
+
+**Síntoma:** el entrenamiento imprimía en cada corrida `Brecha de fragilidad
+(rf_full - rf_no_weekly_lag): 2.11 puntos`, y tanto el README como el informe
+lo presentaban como *el riesgo principal del proyecto*: si `lag_672` dejaba de
+ser confiable por drift, perderíamos 2.11 puntos.
+
+**Qué pasaba:** el número es correcto, pero no significa lo que decía la
+etiqueta. Mide lo que pierde **Random Forest con el conjunto base** al
+quitarle la estacionalidad semanal — una propiedad de ese modelo, no del
+dato. El barrido mostró que CatBoost **mejora** con las mismas cuatro
+features fuera (86.29 → 86.76).
+
+**Por qué importa:** los dos resultados son ciertos a la vez y eso es lo
+interesante. Random Forest se apoya en `lag_672` y sufre sin él; CatBoost se
+sobreajusta a él y rinde más sin él. Lo que medíamos como "fragilidad del
+dato ante drift" era en realidad **el costo de sobreajustarse a una señal**.
+
+**Solución:** se renombró en el código (`dependencia_rf`, y en
+`src/evaluate.py` la constante pasó a `DEGRADACION_DE_REFERENCIA`) y se
+corrigió la narrativa en README, informe y handoff. Como el champion vigente
+ya no usa ninguna feature semanal, ese drift dejó de ser un riesgo activo.
+
+**Lo que enseñó:** una etiqueta equivocada sobrevive más que un bug, porque
+nada falla. El número se imprimió correctamente durante días mientras la
+frase que lo acompañaba decía lo contrario de lo que el dato sostenía.
+
+### 8. Otros arreglos menores
 
 - Índice único parcial `one_champion_only` para que la base impida a nivel
   físico tener dos champions simultáneos.
