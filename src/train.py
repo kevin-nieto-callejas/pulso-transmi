@@ -100,7 +100,28 @@ def build_candidates(observations: pd.DataFrame) -> dict:
         random_seed=20260918, verbose=0, allow_writing_files=False,
     )
 
+    # Conjunto extendido MENOS las cuatro features de estacionalidad semanal.
+    # Sale del barrido de 657 experimentos: las mejores configuraciones no
+    # usaban lag_672. Medido con el protocolo oficial, quitar solo esas cuatro
+    # del conjunto extendido sube de 86.29 a 86.76 con el mismo modelo. La
+    # feature que el EDA corono como la mas importante (91.8%) es la que mas
+    # le estorba a CatBoost: la "brecha de fragilidad" que mediamos era, en
+    # realidad, el costo de sobreajustarse a ella.
+    sin_semanal = [
+        c for c in EXTENDED_FEATURE_COLUMNS
+        if c not in ("lag_672", "lag_1344", "roll_mean_96", "roll_std_96")
+    ] + station_dummy_columns(observations)
+
+    # Hiperparametros hallados por el barrido, no elegidos a mano. Notable:
+    # learning_rate 0.08 y depth 10, bastante lejos del 0.03/8 que se habia
+    # puesto a ojo.
+    cat_del_barrido = dict(
+        iterations=1200, depth=10, learning_rate=0.08, l2_leaf_reg=3,
+        random_seed=20260918, verbose=0, allow_writing_files=False,
+    )
+
     nuevos = {
+        "catboost_sin_semanal": (CatBoostRegressor, sin_semanal, cat_del_barrido),
         "lgbm_extendido": (LGBMRegressor, extendido, lgbm_afinado),
         "catboost_extendido": (CatBoostRegressor, extendido, cat_afinado),
         "xgboost_extendido": (XGBRegressor, extendido, xgb_afinado),

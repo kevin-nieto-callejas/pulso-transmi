@@ -36,9 +36,9 @@ trazabilidad, capacidad de recuperación y decisiones justificadas."*
 | Documento | Para qué |
 |---|---|
 | [`README.md`](../README.md) | Estado, arquitectura, decisiones, cómo reproducir |
-| [`docs/BITACORA.md`](BITACORA.md) | Cronología y los 6 problemas encontrados |
-| [`docs/INFORME_FINAL.md`](INFORME_FINAL.md) | Entregable 11 de la guía |
+| [`docs/BITACORA.md`](BITACORA.md) | Cronología y los problemas encontrados |
 | [`docs/RUNBOOK.md`](RUNBOOK.md) | Qué hacer el día de competencia |
+| [`docs/INFORME_FINAL.md`](INFORME_FINAL.md) | Entregable 11 de la guía |
 | [`docs/entity-relation.md`](entity-relation.md) | Esquema y diagrama E-R |
 | [`eda/EDA_REPORT.md`](../eda/EDA_REPORT.md) | Análisis exploratorio |
 | [`.claude/skills/enviar-predicciones/`](../.claude/skills/enviar-predicciones/SKILL.md) | Cómo enviar predicciones |
@@ -61,14 +61,41 @@ https://bawwhejgcvlawfqualrj.supabase.co/rest/v1/observations?select=count&apike
 
 ---
 
-## 3. Estado a 21/09
+## 3. Lo último (21/09, tarde)
+
+Barrido de **657 experimentos** (`src/sweep.py`) sobre las tres familias de
+boosting. Hallazgo principal, confirmado con el protocolo oficial de 5
+cortes vía `src/revalidar.py`:
+
+| Conjunto de features | n | Accuracy |
+|---|---:|---:|
+| Extendido **completo** | 49 | 86.29 |
+| Extendido **sin lags semanales** | 45 | **86.76** |
+| Solo base sin lag semanal | 25 | **86.79** |
+| Champion vigente (ensamble) | 49 | 86.61 |
+
+**Quitar las cuatro features de estacionalidad semanal sube 0.47 puntos.**
+La feature que el EDA coronó como la más importante (`lag_672`, 91.8% de
+importancia) es la que más le estorba a CatBoost. Lo que se medía como
+"brecha de fragilidad" (2.11 puntos) era en realidad el costo de
+sobreajustarse a ella.
+
+Consecuencia operativa: un CatBoost solo (6 MB) le gana al ensamble de tres
+modelos (38 MB). Menos dependencias en producción y menos descarga por
+ciclo.
+
+`catboost_sin_semanal` ya está agregado a `build_candidates()` en
+`train.py`; la regla de promoción decide si entra.
+
+## 4. Estado a 21/09
 
 | | |
 |---|---|
 | **Reloj de competencia** | `waiting` — no ha empezado |
 | **Champion** | `ensamble_extendido-20260920T223526Z`, accuracy **86.61** |
 | **Tests** | 36, todos en verde |
-| **Commits** | 36 |
+| **Experimentos** | 657 en MLflow + 12 candidatos oficiales |
+| **Commits** | 41 |
 | **Entregables obligatorios** | 10.5 de 11 |
 | **Bonos** | 5 de 5 |
 
@@ -81,7 +108,7 @@ submission aceptada · 2 señales de drift.
 
 ---
 
-## 4. Arquitectura
+## 5. Arquitectura
 
 ```
 API del profe → collector → Supabase → experimentos/modelo
@@ -100,6 +127,7 @@ API del profe → collector → Supabase → experimentos/modelo
 | `src/check_contract.py` | Avisa si el profe cambia algo | cron `17 6,12,18,23` |
 | `src/check_model.py` | ¿el champion carga y predice? | con contract-watch |
 | `src/sweep.py` | Barrido de experimentos con MLflow | manual |
+| `src/revalidar.py` | Revalida los mejores con el protocolo oficial | manual |
 | `src/simulate_cycle.py` | Simulacro de ciclo completo | manual |
 | `src/stress_test.py` | Batería de esfuerzo | manual |
 
@@ -107,7 +135,7 @@ API del profe → collector → Supabase → experimentos/modelo
 
 ---
 
-## 5. Decisiones que no hay que deshacer
+## 6. Decisiones que no hay que deshacer
 
 | Decisión | Por qué |
 |---|---|
@@ -124,7 +152,7 @@ API del profe → collector → Supabase → experimentos/modelo
 
 ---
 
-## 6. Los 6 problemas encontrados (material del informe)
+## 7. Los problemas encontrados (material del informe)
 
 1. **El modelo solo predecía un paso.** 86.77 parecía bueno, pero solo servía
    para +15 min. Corregido a horizonte directo: 85.22. Bajar el número fue lo
@@ -146,7 +174,7 @@ a escala, no probando casos sueltos.
 
 ---
 
-## 7. Números de referencia (medidos, no estimados)
+## 8. Números de referencia (medidos, no estimados)
 
 | Medición | Valor |
 |---|---|
@@ -165,7 +193,7 @@ a escala, no probando casos sueltos.
 
 ---
 
-## 8. Entorno de trabajo (detalles prácticos)
+## 9. Entorno de trabajo (detalles prácticos)
 
 - **Ruta:** `\\wsl.localhost\Ubuntu\home\asus\code\clase3107\pulso-transmi-sdk`
   (ruta de red UNC, con sus rarezas).
@@ -188,6 +216,10 @@ a escala, no probando casos sueltos.
 - **MLflow:** la base está en `%LOCALAPPDATA%\pulso-transmi\mlflow.db`, no en
   el repo — SQLite no funciona sobre rutas de red.
 - **Node no está instalado** (por si hace falta algún validador).
+- **`TaskStop` no mata el proceso hijo.** Detener una tarea de fondo deja el
+  Python corriendo: se comió 13 GB de RAM y tumbó las corridas siguientes sin
+  dar ningún error. Hay que matarlo con `Stop-Process -Id <pid> -Force` y
+  comprobar con `Get-Process python`.
 
 ### Secretos
 **No están en este documento a propósito.**
@@ -203,7 +235,7 @@ La llave publicable es de solo lectura: verificado, lectura 200 y escritura
 
 ---
 
-## 9. Qué falta
+## 10. Qué falta
 
 **Bloqueado por el profesor (el reloj sigue en `waiting`):**
 - Evaluación de accuracy con ciclos reales — `prediction_evaluations` y
@@ -217,7 +249,7 @@ techo teórico, y probar objetivo MAE y pesos por estación no dio nada).
 
 ---
 
-## 10. Cómo trabajar en este proyecto
+## 11. Cómo trabajar en este proyecto
 
 Lo que ha funcionado y conviene mantener:
 

@@ -1,0 +1,4 @@
+trial,familia,feature_set,accuracy_barrido,accuracy_oficial
+99,catboost,sin_lag_semanal,86.92414145157318,86.79102735350021
+28,catboost,sin_lag_semanal,86.86469637969611,86.7521790848566
+67,catboost,sin_lag_semanal,86.82136026397427,86.73008109268507
