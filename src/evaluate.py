@@ -182,9 +182,10 @@ def detectar_degradacion(historial: pd.DataFrame, metrica_esperada: float | None
     totales["computed_at"] = pd.to_datetime(totales["computed_at"], utc=True)
     totales = totales.sort_values("computed_at")
 
-    # Hace falta la ventana actual mas suficientes anteriores para saber cual
-    # es el comportamiento normal de ESTE modelo en ESTA competencia.
-    minimo = CICLOS_POR_VENTANA + VENTANAS_DE_REFERENCIA
+    # Hace falta la ventana actual, mas otra ventana entera de separacion
+    # (las que se solapan no sirven de referencia), mas suficientes ventanas
+    # limpias anteriores para saber que es normal en ESTA competencia.
+    minimo = 2 * CICLOS_POR_VENTANA + VENTANAS_DE_REFERENCIA
     if len(totales) < minimo:
         return None
 
@@ -195,9 +196,34 @@ def detectar_degradacion(historial: pd.DataFrame, metrica_esperada: float | None
     # que es justo lo que se quiere detectar.
     ventanas = totales["accuracy"].rolling(CICLOS_POR_VENTANA).median().dropna()
     actual = float(ventanas.iloc[-1])
-    referencia = ventanas.iloc[:-1]
+
+    # La referencia debe terminar ANTES de que empiece la ventana actual.
+    # Las ventanas intermedias se solapan con ella, asi que ya contienen los
+    # ciclos que se estan juzgando: incluirlas contamina la base y, sobre
+    # todo, infla la desviacion. Medido en la bateria de esfuerzo, esa
+    # contaminacion hacia que una caida de 10 puntos se detectara MENOS (2%)
+    # que una de 6 (10%): cuanto mayor el bajon, mas subia el umbral y mas se
+    # tapaba a si mismo.
+    referencia = ventanas.iloc[:-CICLOS_POR_VENTANA]
+    if len(referencia) < VENTANAS_DE_REFERENCIA:
+        return None
+
     base = float(referencia.median())
-    sigma = float(referencia.std())
+
+    # La desviacion se estima con bloques que NO se solapan. Ventanas
+    # corridas hora a hora comparten 23 de sus 24 ciclos, asi que su
+    # dispersion muestral subestima la variabilidad real y deja el umbral
+    # demasiado pegado a la base. Medido sobre 1.190 ciclos consecutivos de
+    # un mismo modelo, esa subestimacion producia entre 8% y 16% de falsas
+    # alarmas; con bloques independientes baja a lo que se espera de un
+    # umbral de tres desviaciones.
+    bloques = [
+        float(referencia.iloc[i : i + CICLOS_POR_VENTANA].median())
+        for i in range(0, len(referencia) - CICLOS_POR_VENTANA + 1, CICLOS_POR_VENTANA)
+    ]
+    if len(bloques) < 3:
+        return None
+    sigma = float(pd.Series(bloques).std())
 
     if not sigma or pd.isna(sigma):
         return None

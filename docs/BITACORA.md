@@ -201,7 +201,43 @@ degradación no la ve este detector.
 no son comparables aunque se llamen igual. Y que cinco mediciones no son una
 conclusión — el propio error de interpretación se corrigió midiendo más.
 
-### 6. Otros arreglos menores
+### 6. El detector de drift se tapaba a sí mismo
+
+**Síntoma:** ninguno; los 32 tests pasaban.
+
+**Cómo se detectó:** una batería de pruebas de esfuerzo
+(`src/stress_test.py`) que mide sensibilidad y falsas alarmas a escala, en
+vez de comprobar casos sueltos.
+
+**Problema real:** una caída de 10 puntos se detectaba el **2%** de las
+veces, menos que una de 6 (**10%**). Que a mayor degradación hubiera menos
+detección delataba un error lógico: el periodo de referencia incluía
+ventanas que ya contenían la caída. Cuanto mayor el bajón, más se inflaba la
+desviación de referencia, más subía el umbral, y más se tapaba a sí mismo.
+
+**Solución:** la referencia termina antes de que empiece la ventana actual, y
+la desviación se estima con bloques que no se solapan —ventanas corridas
+hora a hora comparten 23 de sus 24 ciclos, así que subestiman la
+variabilidad real—.
+
+**Resultado, medido sobre 100 historiales por tamaño:**
+
+| Caída | Detectada |
+|---|---:|
+| 2 puntos | 26% |
+| 4 puntos | 78% |
+| 6 puntos | 98% |
+| 10 puntos | 100% |
+
+Con 0.4 falsas alarmas por semana sobre historiales sanos.
+
+**Un detalle de método:** la primera medición reportó 8-16% de falsas
+alarmas y parecía inaceptable, hasta contar **episodios** en vez de
+chequeos. Las 101 alarmas de una serie de 43 días resultaron ser 3
+episodios: una misma excursión dispara muchos chequeos seguidos. La métrica
+que importa es cada cuánto alguien tiene que ir a mirar.
+
+### 7. Otros arreglos menores
 
 - Índice único parcial `one_champion_only` para que la base impida a nivel
   físico tener dos champions simultáneos.
@@ -276,3 +312,7 @@ Registradas porque la guía valora poder demostrar el estado, no afirmarlo:
 - Ciclo completo: un simulacro con 48 targets y cuatro horizontes recorre
   predicción, emparejamiento con la realidad, métricas y limpieza, y verifica
   el resultado con un cálculo independiente.
+- Esfuerzo (`src/stress_test.py`): 300 ciclos repartidos por hora y día,
+  impacto medido del recolector atrasado, sensibilidad y falsas alarmas del
+  detector de drift, robustez ante entradas inválidas, y tiempos contra la
+  ventana de entrega.

@@ -66,7 +66,7 @@ def test_el_accuracy_del_ciclo_no_pondera_por_volumen() -> None:
     assert total == 75.0  # promedio simple; ponderado por volumen daria ~99
 
 
-def _historial_normal(n=60, media=85.74, sigma=2.60, semilla=7):
+def _historial_normal(n=168, media=85.74, sigma=2.60, semilla=7):
     """Historial con la variabilidad REAL medida sobre 2.229 ciclos.
 
     Los ciclos NO son independientes: arrastran el estado del dia (una tarde
@@ -103,10 +103,13 @@ def test_la_variacion_normal_no_dispara_alarma() -> None:
 
 
 def test_caida_sostenida_si_dispara_alarma() -> None:
-    """Una caida real y mantenida -no un ciclo malo- si debe detectarse."""
-    hist = _historial_normal(n=80)
-    # Las ultimas 24 horas caen 6 puntos: mas de 3 desviaciones de la ventana.
-    hist.loc[hist.index[-24:], "accuracy"] = hist["accuracy"].iloc[-24:] - 6.0
+    """Una caida real y mantenida -no un ciclo malo- si debe detectarse.
+
+    Seis puntos: medido en la bateria de esfuerzo, ese tamano se detecta el
+    98% de las veces.
+    """
+    hist = _historial_normal()
+    hist.loc[hist.index[-30:], "accuracy"] = hist["accuracy"].iloc[-30:] - 6.0
 
     senal = evaluate.detectar_degradacion(hist)
 
@@ -117,8 +120,33 @@ def test_caida_sostenida_si_dispara_alarma() -> None:
 
 def test_no_se_juzga_sin_historial_de_referencia() -> None:
     """Drift es cambio respecto a como venia. Sin historial propio no hay
-    contra que comparar, y opinar seria inventar."""
+    contra que comparar, y opinar seria inventar.
+
+    Hace falta la ventana actual, otra de separacion -las que se solapan ya
+    contienen los ciclos que se juzgan- y varios bloques independientes
+    antes.
+    """
     assert evaluate.detectar_degradacion(_historial_normal(n=20)) is None
+    assert evaluate.detectar_degradacion(_historial_normal(n=60)) is None
+
+
+def test_la_referencia_no_se_contamina_con_la_caida() -> None:
+    """Regresion de un bug encontrado en la bateria de esfuerzo: si el
+    periodo de referencia incluye ventanas ya afectadas por la caida, la
+    desviacion se infla y el umbral se tapa a si mismo. Se medía entonces
+    que una caida de 10 puntos se detectara MENOS (2%) que una de 6 (10%).
+    """
+    suave = _historial_normal()
+    suave.loc[suave.index[-30:], "accuracy"] = suave["accuracy"].iloc[-30:] - 6.0
+    brutal = _historial_normal()
+    brutal.loc[brutal.index[-30:], "accuracy"] = brutal["accuracy"].iloc[-30:] - 15.0
+
+    s_suave = evaluate.detectar_degradacion(suave)
+    s_brutal = evaluate.detectar_degradacion(brutal)
+
+    assert s_suave is not None and s_brutal is not None
+    # A mayor caida, mas desviaciones por debajo: nunca al reves.
+    assert (s_brutal.umbral - s_brutal.valor) > (s_suave.umbral - s_suave.valor)
 
 
 def test_data_drift_compara_cada_estacion_contra_si_misma() -> None:
