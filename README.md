@@ -406,20 +406,52 @@ python src/infer.py
 
 ## Estructura del repo
 
+**Lo que opera** (corre solo, vía GitHub Actions)
+
 ```
-src/pulso_transmi/      SDK cliente (heredado del starter kit)
-src/features.py         Feature engineering compartido (EDA + entrenamiento + inferencia)
 src/ingest.py           Collector incremental idempotente (Fase 2)
-src/train.py            Entrena, compara candidatos y registra el champion (Fase 3)
-src/predict.py          Recarga el champion desde Storage y pronostica (smoke test)
 src/infer.py            Inferencia + submission por ciclo (Fase 4)
-.github/workflows/      ci.yml (tests) + collector.yml + inference.yml (cron)
-examples/               Scripts de ejemplo del starter kit
-eda/                    Analisis exploratorio, graficos, reportes
+src/evaluate.py         Evaluacion, drift y decision de reentrenamiento (Fase 5)
+src/check_contract.py   Avisa si el docente cambia el contrato de la API
+src/check_model.py      Comprueba que el champion cargue y prediga
+.github/workflows/      ci.yml · collector.yml · inference.yml · contract-watch.yml
+```
+
+**Lo que se corre a mano**
+
+```
+src/train.py            Compara candidatos y promueve el champion (Fase 3)
+src/rollback.py         Vuelve a un champion anterior, verificandolo antes
+src/sweep.py            Barrido de experimentos con MLflow (bono)
+src/revalidar.py        Revalida los mejores del barrido con el protocolo oficial
+src/predict.py          Recarga el champion y pronostica (smoke test)
+src/simulate_cycle.py   Simulacro de un ciclo completo, y limpia lo que crea
+src/stress_test.py      Bateria de esfuerzo del sistema completo
+```
+
+**Codigo compartido, datos y documentacion**
+
+```
+src/features.py         Feature engineering (EDA + entrenamiento + inferencia)
+src/pulso_transmi/      SDK cliente (heredado del starter kit)
 supabase/               Esquema de la base de datos y script de migracion
-docs/                   Documentacion: API, guia del proyecto, entidad-relacion
-artifacts/              Modelos entrenados localmente (ignorado por git)
-tests/                  Tests del SDK (heredados) + collector + inferencia
+contract/expected.json  Estado del contrato del docente que ya revisamos
+dashboard/              Pagina estatica desplegada en Vercel (bono)
+eda/                    Analisis exploratorio, graficas, reportes de experimentos
+docs/                   Bitacora, informe final, runbook, entidad-relacion, traspaso
+tests/                  36 tests: SDK, collector, inferencia y monitoreo
+artifacts/              Modelos entrenados y cache local (ignorado por git)
+```
+
+**Heredado del starter kit, conservado como referencia**
+
+```
+docs/student-project.md   Resumen de requisitos del docente
+examples/                 Descarga del historico y baseline ingenuo
+templates/pipeline.yml    Plantilla de workflow del starter kit. NO se usa:
+                          referencia src/pipeline.py y requirements.txt, que
+                          no existen aqui. Nuestros workflows reales estan en
+                          .github/workflows/.
 ```
 
 ## Fuentes
