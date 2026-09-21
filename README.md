@@ -18,6 +18,8 @@ entrega el profesor al activar el reloj):
 
 - ✅ SDK instalado, histórico descargado (12 estaciones, 45 días, 51.840
   observaciones).
+- 🚨 **Runbook del día de competencia** — qué mirar, qué es normal, y qué
+  hacer cuando algo falla: [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
 - 📄 **Informe final** — qué cambió, qué funcionó, qué no, y qué haríamos
   después: [`docs/INFORME_FINAL.md`](docs/INFORME_FINAL.md).
 - 📓 **Bitácora del proyecto** — qué se construyó, qué se rompió, cómo se
