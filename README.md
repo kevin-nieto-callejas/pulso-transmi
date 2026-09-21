@@ -12,9 +12,13 @@ análisis, esquema de datos, migración— es trabajo propio del equipo.
 
 ## Estado actual
 
-Fases 1, 2 y 3 de la guía metodológica completas; Fase 4 preparada y
-automatizada hasta donde depende del equipo (falta solo la API key, que
-entrega el profesor al activar el reloj):
+Las cinco fases de la guía están implementadas y operando. Lo único que
+falta es evidencia con ciclos reales, que depende de que el docente active
+la competencia: el reloj sigue en `waiting`.
+
+**Estado en una línea:** champion `ensamble_extendido` con 86.61 de
+accuracy, una submission aceptada en la ronda de práctica, collector e
+inferencia entregando solos, 36 tests en verde y los cinco bonos cubiertos.
 
 - ✅ SDK instalado, histórico descargado (12 estaciones, 45 días, 51.840
   observaciones).
@@ -38,20 +42,19 @@ entrega el profesor al activar el reloj):
   [`docs/entity-relation.md`](docs/entity-relation.md) para el esquema,
   el diagrama entidad-relación y las políticas de seguridad (RLS).
 - ✅ Modelo champion multi-horizonte (+15/+30/+45/+60 min), comparado
-  contra 7 alternativas y registrado en `model_versions` (artefacto en
+  contra 11 alternativas y registrado en `model_versions` (artefacto en
   Supabase Storage) — ver [`src/train.py`](src/train.py) y la sección
   "Modelo" abajo.
 - ✅ Collector incremental idempotente (`src/ingest.py`), **automatizado
-  cada 30 minutos vía GitHub Actions** (`.github/workflows/collector.yml`,
-  como pide la guía) — probado en vivo contra el stream real (vacío, reloj
+  vía GitHub Actions** (`.github/workflows/collector.yml`) — probado en vivo contra el stream real (vacío, reloj
   en `waiting`); deja evidencia en `collector_runs` en cada corrida,
   incluso sin novedades.
-- ✅ Workflow de inferencia y submission (`src/infer.py` +
-  `.github/workflows/inference.yml`) listo y probado con mocks: consulta
-  el ciclo vigente, arma el batch de 48 predicciones y lo firma con una
-  llave de idempotencia estable. Termina sin error mientras no haya ciclo
-  abierto; no puede enviar de verdad todavía porque la API key de
-  submissions no existe hasta que el profesor active la competencia.
+- ✅ Inferencia y submission (`src/infer.py` +
+  `.github/workflows/inference.yml`): consulta el ciclo vigente, arma el
+  batch y lo firma con una llave de idempotencia estable. **Entrega real
+  aceptada** en la ronda de práctica del 18/09
+  (`sub_b64352e18de5486ead9478e66d57c523`, 12/12, `is_official: true`).
+  Termina sin error mientras no haya ciclo abierto.
 - ✅ Monitoreo, drift y decisión de reentrenamiento (`src/evaluate.py`):
   une predicción con realidad, calcula accuracy por estación y ciclo,
   vigila las tres señales de la guía y decide mantener/investigar/
@@ -61,7 +64,16 @@ entrega el profesor al activar el reloj):
 - ✅ Dashboard (bono) desplegado en Vercel:
   **https://pulso-transmi-one.vercel.app** — estado en vivo leído con la
   llave pública de solo lectura ([`dashboard/`](dashboard/README.md)).
-- ✅ MLflow (bono): barrido de experimentos en `src/sweep.py`.
+- ✅ MLflow (bono): `src/sweep.py` explora al azar las tres familias de
+  boosting y registra cada intento; `src/revalidar.py` vuelve a medir los
+  mejores con el protocolo oficial antes de considerarlos promovibles.
+- ✅ Pruebas automatizadas (bono): 36 tests en CI, más una batería de
+  esfuerzo (`src/stress_test.py`) y un simulacro de ciclo completo
+  (`src/simulate_cycle.py`).
+- ⬜ Evaluación de accuracy con ciclos reales: el código está completo y
+  ejercitado de punta a punta, pero `prediction_evaluations` y
+  `cycle_metrics` siguen vacías porque la ronda de práctica pidió un
+  instante cuyo valor real nunca se publicó. Depende del docente.
 
 ## Collector incremental
 
@@ -119,17 +131,15 @@ esperadas → Inferencia y submission" de la guía:
    estable — el mismo ciclo y el mismo modelo generan siempre la misma
    llave, así que un reintento nunca crea una segunda entrega.
 5. Envía a `POST /v1/submissions` con la API key en el header
-   `Authorization`. **Esa key todavía no existe** (el profesor no ha
-   activado la competencia): sin ella, el script arma y valida el batch
-   igual, lo imprime, y se detiene explícitamente en vez de fallar — está
-   en modo "listo, esperando la key", no en modo error.
+   `Authorization`. Si esa key no está configurada, el script arma y valida
+   el batch igual, lo imprime, y se detiene explícitamente en vez de fallar.
 
-Probado con `httpx.MockTransport` (`tests/test_infer.py`, 11 tests): el
+Probado con `httpx.MockTransport` (`tests/test_infer.py`, 13 tests): el
 camino "sin ciclo abierto", el armado del batch (horizonte correcto por
 target, valores recortados a `[0, 100000]` como exige el contrato,
 estación desconocida levanta error), la llave de idempotencia estable, la
 detección de "este ciclo ya fue entregado" y la forma exacta del payload
-de `SubmissionInput`. En total el repo corre 17 tests en CI.
+de `SubmissionInput`. En total el repo corre 36 tests en CI.
 
 Automatizado vía `.github/workflows/inference.yml`. Los minutos son una
 recomendación operacional: la decisión real siempre la toma `src/infer.py`
@@ -170,29 +180,46 @@ python src/infer.py
 
 ## Modelo
 
-`src/train.py` entrena y compara 8 candidatos con la misma validación
-cruzada temporal (5 folds, `TimeSeriesSplit`, nunca aleatoria):
+`src/train.py` entrena y compara 12 candidatos con la misma validación
+cruzada temporal (5 folds, `TimeSeriesSplit`, nunca aleatoria). Evidencia
+completa en [`eda/reports/candidate_comparison.csv`](eda/reports/candidate_comparison.csv):
 
 | Candidato | Features | Accuracy (CV) |
 |---|---:|---:|
-| **`xgboost_station`** (champion vigente) | 28 (16 + one-hot de estación) | **85.22** |
+| **`ensamble_extendido`** (champion vigente) | 49 + one-hot de estación | **86.61** |
+| `xgboost_extendido` | 49 | 86.47 |
+| `lgbm_extendido` | 49 | 86.44 |
+| `catboost_extendido` | 49 | 86.41 |
+| `xgboost_station` (champion anterior → `historical`) | 28 | 85.22 |
+| `rf_tuned` (RF, 500 árboles, más profundo) | 16 | 84.55 |
+| `extra_trees_full` | 16 | 84.37 |
 | `xgboost_full` | 16 | 84.28 |
 | `xgboost_tuned2` (más árboles, learning rate más bajo) | 16 | 83.60 |
-| `extra_trees_full` | 16 | 84.37 |
-| `rf_tuned` (RF, 500 árboles, más profundo) | 16 | 84.55 |
 | `rf_full` | 16 | 82.92 |
 | `gbr_full` | 16 | 80.82 |
 | `rf_no_weekly_lag` (prueba de fragilidad) | 13 (sin `lag_672`/`roll_mean_96`/`roll_std_96`) | 80.81 |
+| *baseline ingenuo (repetir el valor de hace 24 h)* | *0* | *77.89* |
+
+El champion es un ensamble de LightGBM + XGBoost + CatBoost: tres familias
+de boosting se equivocan en sitios distintos, así que promediarlas le gana a
+cualquiera por separado (86.61 contra 86.47 del mejor individual).
 
 Desglose del champion por horizonte (misma validación, filtrando cada
 subconjunto):
 
 | Horizonte | Accuracy |
 |---|---:|
-| +15 min | 86.23 |
-| +30 min | 85.56 |
-| +45 min | 85.05 |
-| +60 min | 84.59 |
+| +15 min | 86.95 |
+| +30 min | 86.52 |
+| +45 min | 86.23 |
+| +60 min | 85.99 |
+
+Además de esos 12 candidatos elegidos a mano, `src/sweep.py` explora cientos
+de combinaciones al azar con validación más barata y las registra en MLflow
+([`eda/reports/sweep_results.csv`](eda/reports/sweep_results.csv)). Esos
+números **no son comparables** con los de arriba —se miden con 3 cortes en
+vez de 5—, por eso `src/revalidar.py` vuelve a medir los mejores con el
+protocolo oficial antes de considerarlos promovibles.
 
 **Corrección importante de esta ronda — horizonte directo, no
 "nowcasting":** la primera versión del modelo (86.77 de accuracy, la que
