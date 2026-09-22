@@ -35,7 +35,11 @@ import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
-from features import HORIZONS_MINUTES, build_feature_frame  # noqa: E402
+from features import (  # noqa: E402
+    HORIZONS_MINUTES,
+    aplicar_features_de_target,
+    build_feature_frame,
+)
 from predict import get_champion, load_model_from_storage  # noqa: E402
 
 API_URL = os.environ.get("PULSO_API_URL", "https://pulso-transmi.72-60-245-2.sslip.io").rstrip("/")
@@ -126,7 +130,14 @@ def build_anchor_features(client: httpx.Client, supabase_url: str, data_cutoff: 
         client, f"{supabase_url}/rest/v1/context_readings", headers,
         {
             "observed_at": [f"gte.{window_start}", f"lte.{data_cutoff.isoformat()}"],
-            "select": "observed_at,rain_mm,temperature_c,event_intensity",
+            # rain_forecast/temperature_forecast son features del modelo: si no
+            # se piden aqui, build_feature_frame no puede calcularlas y se
+            # mandaban en 0. Pedir de menos en un `select` no falla, solo
+            # empobrece la prediccion en silencio.
+            "select": (
+                "observed_at,rain_mm,rain_forecast,temperature_c,"
+                "temperature_forecast,event_intensity"
+            ),
             "order": "observed_at",
         },
     )
@@ -185,7 +196,25 @@ def build_batch_predictions(
             )
 
         row["horizon_minutes"] = horizon_minutes
+
+        # Hora y dia del instante objetivo, con la MISMA funcion que usa el
+        # entrenamiento. Si esto falta, el relleno de abajo las pondria en 0
+        # y el modelo recibiria un seno y un coseno valiendo 0 a la vez: un
+        # punto imposible que nunca vio. Costaba 18.5 puntos, en silencio.
+        for columna, valor in aplicar_features_de_target(target_at).items():
+            row[columna] = valor
+
+        # Solo los one-hot de OTRAS estaciones pueden faltar, y para esos 0 es
+        # el valor correcto por definicion. Cualquier otra columna ausente es
+        # una diferencia real entre entrenar y predecir, y rellenarla con 0
+        # produce predicciones malas sin lanzar ningun error: se corta aqui.
         missing = [c for c in feature_columns if c not in row.columns]
+        no_dummies = [c for c in missing if not c.startswith("station_")]
+        if no_dummies:
+            raise ValueError(
+                f"La inferencia no sabe calcular estas features que el modelo espera: {no_dummies}. "
+                "Rellenarlas con 0 daria predicciones silenciosamente malas."
+            )
         for col in missing:
             row[col] = 0  # dummies de otras estaciones: 0 por definicion de one-hot
 

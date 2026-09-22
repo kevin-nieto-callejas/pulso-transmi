@@ -5,8 +5,41 @@ exactamente las mismas features que se validaron en el EDA.
 """
 from __future__ import annotations
 
+from datetime import timedelta, timezone
+
 import numpy as np
 import pandas as pd
+
+# Bogota, UTC-5 todo el ano (Colombia no cambia la hora). Se usa un offset
+# fijo a proposito, en vez de la zona "America/Bogota", para no depender de
+# que la base de zonas horarias este instalada en el runner de GitHub.
+ZONA_BOGOTA = timezone(timedelta(hours=-5))
+
+
+def a_hora_local(valores):
+    """Lleva cualquier marca de tiempo a hora de Bogota.
+
+    La razon de que esto exista: el historico en CSV se lee como UTC-05:00 y
+    Supabase devuelve UTC. Son el MISMO instante, asi que los lags, las
+    diferencias y los horizontes salen bien por ambos caminos y nada falla.
+    Pero `.dt.hour` da 11 por un lado y 16 por el otro, y de ahi salen
+    `hour_sin`/`hour_cos` y el perfil por franja.
+
+    O sea: el modelo se entrenaba con la hora de Bogota y se le preguntaba en
+    UTC, cinco horas corrido, sobre la senal que mas manda en demanda de
+    transporte. Ningun error, ninguna excepcion, ningun test en rojo.
+
+    La hora local es la correcta: la gente toma el bus segun su reloj, no
+    segun UTC. Todo se normaliza aqui, en un solo lugar.
+    """
+    if isinstance(valores, pd.Timestamp):
+        if valores.tzinfo is None:
+            return valores.tz_localize(ZONA_BOGOTA)
+        return valores.tz_convert(ZONA_BOGOTA)
+    serie = pd.to_datetime(valores)
+    if serie.dt.tz is None:
+        return serie.dt.tz_localize(ZONA_BOGOTA)
+    return serie.dt.tz_convert(ZONA_BOGOTA)
 
 ALL_FEATURE_COLUMNS = [
     "hour_sin", "hour_cos", "dow_sin", "dow_cos", "is_weekend",
@@ -58,6 +91,15 @@ EXTENDED_FEATURE_COLUMNS = (
 
 
 def build_feature_frame(observations: pd.DataFrame, context: pd.DataFrame) -> pd.DataFrame:
+    observations = observations.copy()
+    context = context.copy()
+    # Unico punto donde se fija la zona horaria. Da igual si los datos vienen
+    # del CSV (UTC-05:00) o de Supabase (UTC): a partir de aqui, una sola
+    # convencion para entrenar y para predecir.
+    observations["observed_at"] = a_hora_local(observations["observed_at"])
+    if not context.empty and "observed_at" in context.columns:
+        context["observed_at"] = a_hora_local(context["observed_at"])
+
     frame = observations.sort_values(["station_id", "observed_at"]).copy()
 
     frame["hour"] = frame["observed_at"].dt.hour
@@ -125,6 +167,48 @@ def station_dummy_columns(observations: pd.DataFrame) -> list[str]:
     return [f"station_{sid}" for sid in sorted(observations["station_id"].unique())]
 
 
+def aplicar_features_de_target(target_at: "pd.Series | pd.Timestamp") -> dict:
+    """Hora y dia del INSTANTE OBJETIVO, la unica definicion que existe.
+
+    No es fuga de futuro: el reloj del futuro se conoce de antemano. Sin
+    esto el modelo tiene la hora del ancla y el horizonte por separado, y
+    deducir "entonces el target cae a las 7:15" exige una aritmetica que los
+    arboles no hacen bien, justo cuando el perfil de demanda depende sobre
+    todo de la hora objetivo.
+
+    Vive aqui, y no dentro de `explode_horizons`, porque el entrenamiento y
+    la inferencia TIENEN que calcularla igual. Cuando estuvo solo en el
+    camino de entrenamiento, la inferencia no la calculaba y estas cinco
+    columnas se rellenaban con ceros: un seno y un coseno valiendo 0 a la vez
+    es un punto que no existe en el circulo y que el modelo nunca vio
+    entrenando. Costaba 18.5 puntos de accuracy y no lanzaba ningun error.
+
+    Acepta una Serie (entrenamiento, muchas filas) o un Timestamp suelto
+    (inferencia, una prediccion).
+    """
+    target_at = a_hora_local(target_at)
+    if isinstance(target_at, pd.Timestamp):
+        periodo = target_at.hour * 4 + target_at.minute / 15
+        dow = target_at.dayofweek
+        return {
+            "target_hour_sin": float(np.sin(2 * np.pi * periodo / 96)),
+            "target_hour_cos": float(np.cos(2 * np.pi * periodo / 96)),
+            "target_dow_sin": float(np.sin(2 * np.pi * dow / 7)),
+            "target_dow_cos": float(np.cos(2 * np.pi * dow / 7)),
+            "target_is_weekend": int(dow in (5, 6)),
+        }
+
+    periodo = target_at.dt.hour * 4 + target_at.dt.minute / 15
+    dow = target_at.dt.dayofweek
+    return {
+        "target_hour_sin": np.sin(2 * np.pi * periodo / 96),
+        "target_hour_cos": np.cos(2 * np.pi * periodo / 96),
+        "target_dow_sin": np.sin(2 * np.pi * dow / 7),
+        "target_dow_cos": np.cos(2 * np.pi * dow / 7),
+        "target_is_weekend": dow.isin([5, 6]).astype(int),
+    }
+
+
 def explode_horizons(anchor_frame: pd.DataFrame, horizons_minutes: tuple[int, ...] = HORIZONS_MINUTES) -> pd.DataFrame:
     """Convierte cada fila ancla en 4 filas de entrenamiento, una por horizonte.
 
@@ -148,13 +232,8 @@ def explode_horizons(anchor_frame: pd.DataFrame, horizons_minutes: tuple[int, ..
         # horizonte por separado, y deducir "entonces el target cae a las 7:15"
         # exige una aritmetica que los arboles no hacen bien - justo cuando el
         # perfil de demanda depende sobre todo de la hora objetivo.
-        t = variant["target_at"]
-        periodo = t.dt.hour * 4 + t.dt.minute / 15
-        variant["target_hour_sin"] = np.sin(2 * np.pi * periodo / 96)
-        variant["target_hour_cos"] = np.cos(2 * np.pi * periodo / 96)
-        variant["target_dow_sin"] = np.sin(2 * np.pi * t.dt.dayofweek / 7)
-        variant["target_dow_cos"] = np.cos(2 * np.pi * t.dt.dayofweek / 7)
-        variant["target_is_weekend"] = t.dt.dayofweek.isin([5, 6]).astype(int)
+        for columna, valores in aplicar_features_de_target(variant["target_at"]).items():
+            variant[columna] = valores
 
         variants.append(variant)
     return pd.concat(variants, ignore_index=True)

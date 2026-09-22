@@ -24,7 +24,11 @@ DATA = ROOT / "data"
 ARTIFACTS = ROOT / "artifacts"
 
 sys.path.insert(0, str(ROOT / "src"))
-from features import HORIZONS_MINUTES, build_feature_frame  # noqa: E402
+from features import (  # noqa: E402
+    HORIZONS_MINUTES,
+    aplicar_features_de_target,
+    build_feature_frame,
+)
 
 
 def get_champion() -> dict:
@@ -111,6 +115,11 @@ def main() -> None:
                 continue
             feature_row = anchor_row.copy()
             feature_row["horizon_minutes"] = horizon
+            # Misma funcion que el entrenamiento. Sin esto, el reindex de
+            # abajo las rellenaria con 0 (ver src/infer.py) y este smoke test
+            # mediria un modelo peor del que realmente tenemos.
+            for columna, valor in aplicar_features_de_target(target_at).items():
+                feature_row[columna] = valor
             feature_row = feature_row.reindex(columns=feature_columns, fill_value=0)
             prediction = model.predict(feature_row)[0]
             rows.append({

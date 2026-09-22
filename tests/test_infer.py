@@ -199,3 +199,77 @@ def test_make_submission_payload_shape() -> None:
     assert payload["predictions"] == predictions
     assert payload["model"]["version"] == champion["version_id"]
     assert payload["model"]["git_commit"] == "9005e8c"
+
+
+def test_las_features_del_target_se_calculan_en_inferencia() -> None:
+    """El bug mas caro del proyecto: 18.5 puntos de accuracy, en silencio.
+
+    `explode_horizons` calcula la hora y el dia del instante OBJETIVO, pero
+    `build_feature_frame` -lo unico que corre en inferencia- no. Esas cinco
+    columnas caian en el relleno de one-hot y se mandaban en 0. Un seno y un
+    coseno valiendo 0 a la vez es un punto que no existe en el circulo
+    unitario y que el modelo jamas vio entrenando.
+
+    Nada fallaba: el modelo predecia, la API aceptaba, los tests pasaban.
+    """
+    import numpy as np
+    from features import TARGET_TIME_COLUMNS
+
+    data_cutoff = pd.Timestamp("2026-09-20T10:00:00+00:00")
+    anchor_by_station = pd.DataFrame(
+        {"some_feat": [1.0], "observed_at": [data_cutoff]},
+        index=pd.Index(["03000"], name="station_id"),
+    )
+    visto = {}
+
+    class _Espia:
+        def predict(self, frame):
+            visto.update(frame.iloc[0].to_dict())
+            return [10.0]
+
+    # target a las 10:45 de un domingo -> ninguna de las cinco es 0
+    infer.build_batch_predictions(
+        _Espia(), ["some_feat", "horizon_minutes", *TARGET_TIME_COLUMNS], anchor_by_station,
+        [{"station_id": "03000", "target_at": "2026-09-20T10:45:00+00:00"}], data_cutoff,
+    )
+
+    for columna in TARGET_TIME_COLUMNS:
+        assert columna in visto, f"la inferencia no mando {columna}"
+
+    # 10:45 UTC son las 05:45 en Bogota, y la hora LOCAL es la que aprendio
+    # el modelo: la gente toma el bus segun su reloj. Usar la hora UTC aqui
+    # deja el modelo corrido cinco horas sobre su senal mas fuerte.
+    periodo = 5 * 4 + 45 / 15
+    assert visto["target_hour_sin"] == pytest.approx(np.sin(2 * np.pi * periodo / 96))
+    assert visto["target_hour_cos"] == pytest.approx(np.cos(2 * np.pi * periodo / 96))
+    # sin^2 + cos^2 = 1: imposible si ambas llegaran en 0
+    assert visto["target_hour_sin"] ** 2 + visto["target_hour_cos"] ** 2 == pytest.approx(1.0)
+    assert visto["target_is_weekend"] == 1  # 2026-09-20 es domingo
+
+
+def test_una_feature_desconocida_no_se_rellena_con_cero() -> None:
+    """Causa raiz del bug anterior: rellenar con 0 cualquier columna ausente.
+
+    Para los one-hot de otras estaciones 0 es correcto por definicion. Para
+    cualquier otra cosa es una diferencia entre entrenar y predecir, y debe
+    reventar en vez de devolver una prediccion mala en silencio.
+    """
+    data_cutoff = pd.Timestamp("2026-09-20T10:00:00+00:00")
+    anchor_by_station = pd.DataFrame(
+        {"some_feat": [1.0], "observed_at": [data_cutoff]},
+        index=pd.Index(["03000"], name="station_id"),
+    )
+    targets = [{"station_id": "03000", "target_at": "2026-09-20T10:15:00+00:00"}]
+
+    # station_99999 es un one-hot: se rellena con 0 sin quejarse.
+    infer.build_batch_predictions(
+        _FakeModel([5.0]), ["some_feat", "horizon_minutes", "station_99999"],
+        anchor_by_station, targets, data_cutoff,
+    )
+
+    # roll_mean_8 no lo es: la inferencia no sabe calcularla, debe fallar.
+    with pytest.raises(ValueError, match="roll_mean_8"):
+        infer.build_batch_predictions(
+            _FakeModel([5.0]), ["some_feat", "horizon_minutes", "roll_mean_8"],
+            anchor_by_station, targets, data_cutoff,
+        )
