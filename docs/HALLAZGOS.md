@@ -182,14 +182,39 @@ equivocada hay que ir a buscarla.
 **Medimos:** se rompió el collector a propósito de tres formas y se verificó
 que cada una hiciera fallar un test.
 **Implica:** sin esa comprobación, un test podría estar pasando también con
-el código roto. Cuatro de los seis bugs del proyecto pasaban todos los
+el código roto. Seis de los ocho bugs del proyecto pasaban todos los
 controles en verde.
+
+---
+
+## Sobre entrenar y predecir
+
+### 20. Dos caminos que deberían ver lo mismo, y no lo veían
+**Creíamos:** si el entrenamiento valida en 86.76 y la inferencia entrega
+48 predicciones aceptadas, el sistema funciona.
+**Medimos:** la primera entrega oficial sacó **20.37**. La inferencia
+mandaba en 0 las cinco features de hora del objetivo (solo existían en el
+camino de entrenamiento), no pedía el pronóstico del clima, y leía la hora
+en UTC cuando el modelo había aprendido la de Bogotá. Corregido, el mismo
+ciclo da **82.86**.
+**Implica:** entrenar bien y predecir bien por separado no basta; hay que
+comprobar que los dos caminos construyan el mismo vector de features. Toda
+feature debe tener una sola definición, compartida, y la inferencia debe
+fallar ante una columna que no sabe calcular en vez de rellenarla con 0.
+
+### 21. El mismo instante no es la misma hora
+**Medimos:** el CSV trae UTC-05:00 y Supabase devuelve UTC. Lags,
+diferencias y horizontes salen idénticos por los dos caminos, así que
+ninguna comparación de valores lo detectaba. Solo `.dt.hour` cambia: 7 por
+un lado, 12 por el otro.
+**Implica:** normalizar la zona horaria en un único punto, al construir las
+features, y probarlo con los mismos datos expresados en las dos zonas.
 
 ---
 
 ## Sobre la infraestructura
 
-### 20. GitHub descarta corridas programadas
+### 22. GitHub descarta corridas programadas
 **Medimos:** 2 ejecuciones de ~28 esperadas en 7 horas. No era cuota ni
 configuración: bajo carga, GitHub no encola las atrasadas, las descarta.
 `:00` y `:30` son los minutos más congestionados.
@@ -197,13 +222,13 @@ configuración: bajo carga, GitHub no encola las atrasadas, las descarta.
 minutos. Se mitiga con más intentos en minutos impares y vigilancia interna
 por corrida.
 
-### 21. PostgREST nunca devuelve más de 1000 filas
+### 23. PostgREST nunca devuelve más de 1000 filas
 **Medimos:** pedir `limit=5000` devuelve 1000, con
 `Content-Range: 0-999/51840`.
 **Implica:** una paginación que asuma páginas más grandes corta en la
 primera. Nos cargaba 1 de 12 estaciones, y solo apareció con volumen real.
 
-### 22. Otras rarezas del entorno
+### 24. Otras rarezas del entorno
 
 | Qué | Detalle |
 |---|---|
@@ -216,7 +241,7 @@ primera. Nos cargaba 1 de 12 estaciones, y solo apareció con volumen real.
 
 ## El patrón
 
-Cuatro de los seis bugs no lanzaban ninguna excepción. Los tests pasaban. El
+Seis de los ocho bugs no lanzaban ninguna excepción. Los tests pasaban. El
 código se veía bien. Aparecieron al **ejercitar el sistema con datos reales y
 a escala**, no al probar casos sueltos.
 
@@ -224,3 +249,7 @@ Y tres de ellos se encontraron buscando otra cosa: el simulacro que se hizo
 para validar el pipeline de evaluación destapó el problema del monitoreo; la
 batería de esfuerzo, escrita para medir sensibilidad, destapó que el
 detector se anulaba solo.
+
+Los dos últimos los encontró la competencia misma: la API aceptó la entrega
+y solo el accuracy del leaderboard delató el problema. Es el argumento más
+fuerte para medir con datos reales cuanto antes.

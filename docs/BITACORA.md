@@ -90,6 +90,28 @@ Salió del barrido, no de elegir a mano.
 - Catálogo de hallazgos ([`HALLAZGOS.md`](HALLAZGOS.md)) para no volver a
   descubrir lo aprendido.
 
+### 21 de septiembre, noche — arranca la competencia
+
+- El reloj pasó a `running` (`official-20260921`). Primera entrega oficial
+  aceptada: `sub_4c510f6877f747c983447847b63d5442`, ciclo de las 12:00
+  virtuales, 48/48.
+- El leaderboard la evaluó en **20.37** de accuracy, contra ~86 de la
+  validación. Nada había fallado: la entrega fue aceptada y los tests
+  pasaban.
+- La causa fueron dos diferencias entre entrenar y predecir (problemas 8 y
+  9). Con el código corregido, ese mismo ciclo da **82.86** y el de las
+  13:00, **86.62**, medidos contra la demanda real.
+- Se perdió el ciclo de las 13:00: GitHub no ejecutó ninguna corrida de
+  `inference` entre las 22:38 y las 00:30 UTC (problema 4, ahora en
+  competencia).
+- El docente publicó la API 0.6.0 y la guía operativa v2.0. Revisadas: no
+  cambian ningún endpoint ni campo que usemos, y el loop que piden es el
+  que ya corre.
+- La API no publica contexto (clima) después del 8 de septiembre a las
+  23:45 hora local. No es un fallo del collector: en competencia el modelo
+  recibe esas columnas vacías, y las mediciones de arriba ya se hicieron
+  así.
+
 ---
 
 ## Problemas encontrados y cómo se resolvieron
@@ -286,7 +308,53 @@ ya no usa ninguna feature semanal, ese drift dejó de ser un riesgo activo.
 nada falla. El número se imprimió correctamente durante días mientras la
 frase que lo acompañaba decía lo contrario de lo que el dato sostenía.
 
-### 8. Otros arreglos menores
+### 8. La inferencia mandaba en 0 features que el modelo sí usa
+
+**Síntoma:** la primera entrega oficial sacó 20.37 en el leaderboard. Antes
+de eso, ninguno: la API la aceptó y los 36 tests pasaban.
+
+**Problema real:** las cinco features de hora y día del instante objetivo
+(`target_hour_sin`, `target_hour_cos`, etc.) se calculaban dentro de
+`explode_horizons`, que solo corre al entrenar. En inferencia no existían,
+y un relleno pensado para los one-hot de otras estaciones las ponía en 0.
+Un seno y un coseno valiendo 0 a la vez es un punto que no existe en el
+círculo y que el modelo nunca vio. Del mismo modo, `infer.py` no pedía
+`rain_forecast` ni `temperature_forecast` en el `select` a Supabase.
+
+**Por qué no se detectó antes:** el smoke test (`src/predict.py`) y el
+simulacro tenían el mismo hueco, así que medían el mismo modelo roto. Pedir
+de menos en un `select` o rellenar con 0 no lanza ningún error.
+
+**Solución:** `aplicar_features_de_target()` en `src/features.py` es la
+única definición, y la usan entrenamiento, inferencia y smoke test. Además,
+la inferencia ahora **falla** si falta una feature que no sea un one-hot de
+estación, en vez de rellenarla con 0. Tests de regresión para ambos casos.
+
+### 9. La hora del día quedaba corrida cinco horas
+
+**Síntoma:** ninguno por separado; se sumaba al anterior.
+
+**Problema real:** el histórico en CSV se lee como UTC-05:00 y Supabase
+devuelve UTC. Son el mismo instante, así que lags, diferencias y horizontes
+salían bien por los dos caminos. Pero `.dt.hour` daba 7 por un lado y 12
+por el otro: el modelo aprendió con la hora de Bogotá y se le preguntaba en
+UTC, sobre la señal que más manda en demanda de transporte.
+
+**Solución:** `build_feature_frame` normaliza observaciones y contexto a
+hora de Bogotá (offset fijo UTC-5, para no depender de la base de zonas
+horarias del runner). No hubo que reentrenar: el champion se entrenó con el
+CSV, que ya estaba en hora local. Test que construye las features desde las
+dos zonas y exige el mismo resultado.
+
+**Resultado medido:** el ciclo oficial de las 12:00 pasa de 20.37 a 82.86
+con los dos arreglos, contra la demanda real publicada.
+
+**Lo que enseñó:** que un sistema entrene bien y prediga bien por separado
+no garantiza que ambos caminos vean lo mismo. Las dos fallas vivían en la
+frontera entre entrenamiento e inferencia, y ningún test cruzaba esa
+frontera con datos reales de ambos lados.
+
+### 10. Otros arreglos menores
 
 - Índice único parcial `one_champion_only` para que la base impida a nivel
   físico tener dos champions simultáneos.
