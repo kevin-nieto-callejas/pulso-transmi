@@ -11,7 +11,9 @@ Cuatro pasos:
   2. **Medir**: accuracy por estacion y por ciclo con la formula oficial
      (WAPE por estacion, promedio NO ponderado entre las 12), en `cycle_metrics`.
   3. **Vigilar**: las tres senales que distingue la guia -degradacion de
-     rendimiento, cambio en los datos de entrada, y falla operacional-.
+     rendimiento, cambio en los datos de entrada, y falla operacional- mas
+     una cuarta propia: una estacion que rinde mal frente a las otras 11
+     aunque el promedio global las tape (ver `detectar_estacion_atipica`).
   4. **Decidir**: mantener, investigar o reentrenar, con criterio de
      persistencia. *"El reentrenamiento no debe reaccionar a un unico periodo
      dificil"*.
@@ -79,6 +81,26 @@ DEGRADACION_DE_REFERENCIA = 2.11
 # compara cada estacion CONTRA SI MISMA y se marca a partir de 3 desviaciones
 # de su propia distribucion de entrenamiento.
 DESVIACIONES_PARA_DATA_DRIFT = 3.0
+
+# Una estacion que rinde mal frente a las OTRAS 11, no frente a su propio
+# pasado. `detectar_degradacion` mira si el promedio de las 12 cae respecto a
+# si mismo con el tiempo; eso no ve una estacion mala que ya viene mal desde
+# el primer ciclo y se mantiene ahi (mejora poco a poco pero nunca alcanza a
+# las demas). Hallazgo real: la estacion 09000 promedio 70.39 de accuracy
+# contra 79-87 del resto (26 ciclos oficiales), sobre-prediciendo la demanda
+# en horas pico 9 de cada 10 veces - compatible con un cambio de regimen real
+# de esa estacion, no con ruido.
+#
+# El umbral es mas bajo que el de degradacion temporal (2 en vez de 3) porque
+# aqui la muestra es de solo 12 estaciones, no de docenas de ventanas: exigir
+# 3 desviaciones sobre una poblacion tan chica dejaria casi cualquier cosa
+# sin detectar.
+SIGMAS_ESTACION_ATIPICA = 2.0
+
+# Con menos estaciones que esto, la media y desviacion entre ellas no dicen
+# nada confiable (las 12 estaciones ya tienen mas de 3x de diferencia de
+# demanda entre si; con una muestra mas chica el ruido domina).
+MINIMO_ESTACIONES_PARA_COMPARAR = 8
 
 
 @dataclass
@@ -285,6 +307,56 @@ def detectar_cambio_en_datos(reciente: pd.DataFrame, referencia: pd.DataFrame) -
     return senales
 
 
+def detectar_estacion_atipica(historial: pd.DataFrame) -> Senal | None:
+    """Una estacion que rinde mal frente a las otras 11, no frente a su pasado.
+
+    Complementa a `detectar_degradacion`: ese mira si el conjunto de las 12
+    cae con el TIEMPO; este mira si UNA sola queda muy por debajo de sus
+    pares en el AGREGADO de lo evaluado hasta ahora, aunque nunca haya
+    empeorado (una estacion que arranca mal y mejora poco a poco, sin
+    alcanzar a las demas, no dispara ninguna alarma temporal).
+
+    Se compara cada estacion contra la media y desviacion de las 12, no
+    contra un numero fijo: la demanda varia mucho de una estacion a otra, asi
+    que lo que importa es si UNA se queda atras del grupo, no su valor
+    absoluto.
+    """
+    if historial.empty or "station_id" not in historial.columns:
+        return None
+
+    por_estacion = historial[historial["station_id"].notna()]
+    if por_estacion.empty:
+        return None
+
+    medias = por_estacion.groupby("station_id")["accuracy"].mean()
+    if len(medias) < MINIMO_ESTACIONES_PARA_COMPARAR:
+        return None
+
+    media_grupo, desv_grupo = float(medias.mean()), float(medias.std())
+    if not desv_grupo or pd.isna(desv_grupo):
+        return None
+
+    peor_estacion = medias.idxmin()
+    peor_valor = float(medias.loc[peor_estacion])
+    z = (media_grupo - peor_valor) / desv_grupo
+    if z <= SIGMAS_ESTACION_ATIPICA:
+        return None
+
+    return Senal(
+        tipo="station",
+        descripcion=(
+            f"Estacion {peor_estacion}: accuracy promedio {peor_valor:.2f} contra "
+            f"{media_grupo:.2f} del resto de estaciones, {z:.1f} desviaciones por debajo "
+            f"({len(medias)} estaciones comparadas)."
+        ),
+        valor=peor_valor, umbral=media_grupo - SIGMAS_ESTACION_ATIPICA * desv_grupo,
+        accion=(
+            "Investigar esa estacion puntual antes de tocar el modelo global: puede ser un "
+            "cambio de regimen real y aislado, no algo que amerite reentrenar todo."
+        ),
+    )
+
+
 def detectar_falla_operacional(ciclos: pd.DataFrame, submissions: pd.DataFrame) -> Senal | None:
     """Ciclos que se cerraron sin que entregaramos nada.
 
@@ -336,6 +408,13 @@ def decidir(senales: list[Senal], observaciones_nuevas: int, horas_desde_entrena
         return (f"REENTRENAR: degradacion sostenida, {observaciones_nuevas} observaciones nuevas y "
                 f"{horas_desde_entrenamiento:.0f} h desde el ultimo entrenamiento. "
                 "Ejecutar train.py; la regla de promocion decide si el candidato entra.")
+
+    if "station" in tipos:
+        # Nunca reentrena el modelo global por una sola estacion: el problema
+        # esta ahi, no en las otras 11. Reentrenar todo por esto seria
+        # cambiar lo que ya funciona para arreglar lo que no.
+        return ("INVESTIGAR (estacion): una estacion especifica rinde muy por debajo de las demas. "
+                "Revisar esa estacion puntual antes de tocar el modelo global.")
 
     return "INVESTIGAR (datos): cambio en la distribucion de entrada sin degradacion de accuracy todavia. Vigilar."
 
@@ -425,6 +504,9 @@ def main() -> None:
         if degradacion:
             senales.append(degradacion)
         senales += detectar_cambio_en_datos(reciente, referencia)
+        atipica = detectar_estacion_atipica(historial)
+        if atipica:
+            senales.append(atipica)
         falla = detectar_falla_operacional(
             traer(client, url, "cycles", {"select": "cycle_id,status"}),
             traer(client, url, "submissions", {"select": "cycle_id"}),

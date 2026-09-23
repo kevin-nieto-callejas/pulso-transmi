@@ -103,7 +103,7 @@ create table cycle_metrics (
 create table drift_signals (
     id bigint generated always as identity primary key,
     detected_at timestamptz not null default now(),
-    signal_type text not null check (signal_type in ('performance', 'data', 'operational')),
+    signal_type text not null check (signal_type in ('performance', 'data', 'operational', 'station')),
     description text not null,
     metric_value double precision,
     threshold_value double precision,

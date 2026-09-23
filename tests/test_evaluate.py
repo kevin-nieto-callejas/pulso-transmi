@@ -170,6 +170,58 @@ def test_data_drift_compara_cada_estacion_contra_si_misma() -> None:
     assert senales[0].tipo == "data"
 
 
+def _historial_multiestacion(por_estacion: dict[str, list[float]]) -> pd.DataFrame:
+    """Historial con varias estaciones, cada una con su propia lista de
+    accuracies por ciclo. No hace falta `computed_at`: este detector compara
+    el agregado, no la evolucion en el tiempo."""
+    filas = []
+    for station_id, accuracies in por_estacion.items():
+        for i, a in enumerate(accuracies):
+            filas.append({"cycle_id": f"cyc_{i}", "station_id": station_id, "accuracy": a})
+    return pd.DataFrame(filas)
+
+
+def test_estacion_atipica_se_detecta_frente_a_sus_pares() -> None:
+    """Caso real: la estacion 09000 promedio 70 de accuracy contra 79-87 de
+    las otras 11 (26 ciclos oficiales), sin que ninguna alarma de degradacion
+    temporal la viera -mejoraba con el tiempo, solo que nunca alcanzaba a las
+    demas-. Esta senal la debe agarrar comparando contra el grupo, no contra
+    su propio pasado."""
+    historial = _historial_multiestacion({
+        "09000": [70.39] * 5,
+        "05000": [79.89] * 5, "02300": [82.65] * 5, "03000": [82.76] * 5,
+        "10009": [83.23] * 5, "07105": [84.44] * 5, "07111": [85.44] * 5,
+        "09122": [85.49] * 5, "06000": [85.74] * 5, "05100": [86.23] * 5,
+        "07107": [86.42] * 5, "06111": [86.96] * 5,
+    })
+
+    senal = evaluate.detectar_estacion_atipica(historial)
+
+    assert senal is not None
+    assert senal.tipo == "station"
+    assert "09000" in senal.descripcion
+
+
+def test_estaciones_parejas_no_disparan_alarma() -> None:
+    """Diferencias normales entre estaciones (ninguna se queda muy atras) no
+    deben generar una senal."""
+    historial = _historial_multiestacion({
+        f"est_{i}": [83.0 + i * 0.3] for i in range(10)
+    })
+
+    assert evaluate.detectar_estacion_atipica(historial) is None
+
+
+def test_estacion_atipica_no_se_evalua_con_pocas_estaciones() -> None:
+    """Con menos estaciones que el minimo, la media y desviacion del grupo no
+    son confiables -no hay base suficiente para decir que una esta atipica-."""
+    historial = _historial_multiestacion({
+        "09000": [70.0] * 5, "05000": [86.0] * 5, "02300": [86.0] * 5,
+    })
+
+    assert evaluate.detectar_estacion_atipica(historial) is None
+
+
 def test_se_detectan_ciclos_sin_entregar() -> None:
     ciclos = pd.DataFrame([{"cycle_id": "cyc_1"}, {"cycle_id": "cyc_2"}, {"cycle_id": "cyc_3"}])
     submissions = pd.DataFrame([{"cycle_id": "cyc_1"}])
