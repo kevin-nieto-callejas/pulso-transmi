@@ -362,12 +362,18 @@ def detectar_falla_operacional(ciclos: pd.DataFrame, submissions: pd.DataFrame) 
 
     La guia la lista como senal propia y advierte: *"corregir la operacion
     antes de culpar al modelo"*. Un accuracy bajo por no haber entregado no
-    se arregla reentrenando.
+    se arregla reentrenando. Los simulacros y la entrega de practica no son
+    ventanas competitivas, por lo que nunca deben disparar esta alarma.
     """
     if ciclos.empty or "cycle_id" not in ciclos.columns:
         return None
+    ciclos_oficiales = ciclos[
+        ciclos["cycle_id"].astype("string").str.startswith("cyc_official-", na=False)
+    ]
+    if ciclos_oficiales.empty:
+        return None
     entregados = set(submissions["cycle_id"]) if ("cycle_id" in submissions.columns and not submissions.empty) else set()
-    sin_entregar = [c for c in ciclos["cycle_id"] if c not in entregados]
+    sin_entregar = [c for c in ciclos_oficiales["cycle_id"] if c not in entregados]
     if not sin_entregar:
         return None
     return Senal(

@@ -223,14 +223,29 @@ def test_estacion_atipica_no_se_evalua_con_pocas_estaciones() -> None:
 
 
 def test_se_detectan_ciclos_sin_entregar() -> None:
-    ciclos = pd.DataFrame([{"cycle_id": "cyc_1"}, {"cycle_id": "cyc_2"}, {"cycle_id": "cyc_3"}])
-    submissions = pd.DataFrame([{"cycle_id": "cyc_1"}])
+    ciclos = pd.DataFrame([
+        {"cycle_id": "cyc_official-1"},
+        {"cycle_id": "cyc_official-2"},
+        {"cycle_id": "cyc_official-3"},
+    ])
+    submissions = pd.DataFrame([{"cycle_id": "cyc_official-1"}])
 
     senal = evaluate.detectar_falla_operacional(ciclos, submissions)
 
     assert senal is not None
     assert senal.tipo == "operational"
     assert "2 ciclo(s)" in senal.descripcion
+
+
+def test_simulacros_y_practica_no_disparan_falla_operacional() -> None:
+    ciclos = pd.DataFrame([
+        {"cycle_id": "cyc_sim_20260921T162603Z"},
+        {"cycle_id": "cyc_practice_20260918"},
+        {"cycle_id": "cyc_official-1"},
+    ])
+    submissions = pd.DataFrame([{"cycle_id": "cyc_official-1"}])
+
+    assert evaluate.detectar_falla_operacional(ciclos, submissions) is None
 
 
 def test_la_falla_operacional_tiene_prioridad_sobre_reentrenar() -> None:
