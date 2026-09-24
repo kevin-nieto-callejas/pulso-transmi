@@ -20,6 +20,14 @@ on:
     - cron: "3,13,23,33,43,53 * * * *"
   workflow_dispatch: {}
 
+# Puede haber varios despertares casi simultaneos (schedule, reintentos o
+# dispatch manual). Solo uno debe construir y enviar el batch: los demas
+# esperan y, al arrancar, detectan la submission ya registrada en Supabase.
+# Esto evita carreras con la misma llave de idempotencia y contenido distinto.
+concurrency:
+  group: pulso-transmi-inference
+  cancel-in-progress: false
+
 jobs:
   infer:
     runs-on: ubuntu-latest

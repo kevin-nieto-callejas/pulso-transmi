@@ -1,9 +1,9 @@
 {
   "_comentario": "Estado del contrato del profesor que este repo ya revisó y con el que sabemos que nuestro pipeline funciona. src/check_contract.py compara la realidad contra esto y falla si algo cambió. Cuando revisemos un cambio y adaptemos el código, actualizamos estos valores a propósito.",
-  "api_version": "0.7.0",
+  "api_version": "0.7.1",
   "upstream_repo": "uexternadojz/pulso-transmi",
-  "upstream_last_reviewed_sha": "94561ac6759c8ceaed18eeeae1c99f2e6c79ad7d",
-  "upstream_last_reviewed_date": "2026-09-22T16:29:18Z",
+  "upstream_last_reviewed_sha": "b45a7297a83f02724cdf11da447b81c81a620fb6",
+  "upstream_last_reviewed_date": "2026-09-23T20:18:23Z",
   "endpoints_requeridos": [
     "/v1/clock",
     "/v1/context",
