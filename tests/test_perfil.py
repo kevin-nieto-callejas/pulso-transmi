@@ -16,6 +16,7 @@ from perfil import (  # noqa: E402
     LIMITES_FACTOR,
     MEZCLA_PERFIL,
     PESO_PERFIL_CIERRE,
+    PESO_PERFIL_CON_DESFASE,
     PerfilAdaptativo,
     mezclar,
 )
@@ -220,10 +221,22 @@ def test_sin_historia_suficiente_el_desfase_es_cero():
 def test_una_rampa_retrasada_no_se_confunde_con_un_cierre():
     """Regresion de un falso positivo real: con el pico corrido, la demanda sube
     tarde y el perfil sin mover ya esta arriba, asi que el cociente cae. Con el
-    desfase corregido el detector debe callar y dejar la mezcla normal."""
+    desfase corregido el detector NO debe tomarlo por un cierre: el perfil pesa
+    lo que corresponde a un desfase, no el peso total de un cierre."""
     obs = _observaciones_con_pico_corrido(pasos=3)
     perfil = PerfilAdaptativo(obs)
     # justo cuando la curva sube: el perfil sin mover adelanta a la demanda real
     for hora in range(4, 12):
         ancla = obs["observed_at"].max().normalize() + pd.Timedelta(hours=hora)
-        assert perfil.peso_de_mezcla("01000", ancla) == MEZCLA_PERFIL, f"falsa alarma a las {hora}:00"
+        assert perfil.peso_de_mezcla("01000", ancla) != PESO_PERFIL_CIERRE, f"falsa alarma a las {hora}:00"
+
+
+def test_con_un_desfase_confirmado_el_perfil_pesa_mas():
+    """El champion sigue anclado a la hora vieja del pico; donde el desfase esta
+    confirmado se le da mas voz al perfil."""
+    obs = _observaciones_con_pico_corrido(pasos=3)
+    perfil = PerfilAdaptativo(obs)
+    ancla = obs["observed_at"].max()
+    assert perfil.desfase("01000", ancla) == 3
+    assert perfil.peso_de_mezcla("01000", ancla) == PESO_PERFIL_CON_DESFASE
+    assert PESO_PERFIL_CON_DESFASE > MEZCLA_PERFIL

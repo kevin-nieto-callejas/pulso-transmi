@@ -66,6 +66,16 @@ UMBRAL_CIERRE_LARGO = 0.80  # factor de las ultimas 2 horas (8 pasos)
 VENTANA_CIERRE_LARGA = 8
 PESO_PERFIL_CIERRE = 1.0
 
+# Peso del perfil cuando hay un desfase confirmado. El champion sigue anclado a
+# la hora vieja del pico: con el peak_shift la rampa de la manana llega ~45 min
+# tarde y el champion la predice antes, sobrepredice las horas previas y
+# subpredice las siguientes (05000 marco 23 de accuracy en un ciclo). Donde el
+# detector de fase ya confirma un corrimiento, el perfil sabe algo que el
+# champion no. Medido con 38 h de drift activo: +0.5 en la ventana del 12-sep y
+# +0.7 en las ultimas horas, y -0.03 en los dias sin drift (0.55: +0.4, 0.70:
+# +0.6, 0.85: +0.7, 1.00: +0.5; se toma 0.70 por prudencia, casi toda la ganancia).
+PESO_PERFIL_CON_DESFASE = 0.70
+
 # Correccion de fase. El `peak_shift` del generador corre el centro del pico
 # diario (+45 min en el ejemplo del profesor) ademas de subir el nivel. El
 # perfil sigue anclado a la hora vieja y predice el pico donde ya no esta, y
@@ -229,7 +239,7 @@ class PerfilAdaptativo:
         largo = self.factor_de_nivel(estacion, ancla_at, VENTANA_CIERRE_LARGA, desfase)
         if corto < UMBRAL_CIERRE_CORTO and largo < UMBRAL_CIERRE_LARGO:
             return PESO_PERFIL_CIERRE
-        return MEZCLA_PERFIL
+        return PESO_PERFIL_CON_DESFASE if desfase != 0 else MEZCLA_PERFIL
 
     def predecir(self, estacion: str, target_at: pd.Timestamp, ancla_at: pd.Timestamp) -> float | None:
         """Demanda esperada en `target_at`, o None si no hay perfil para esa
