@@ -17,7 +17,9 @@ name: inference
 # src/infer.py ademas consulta si ese ciclo ya fue entregado.
 on:
   schedule:
-    - cron: "3,13,23,33,43,53 * * * *"
+    # Dos oportunidades dentro de cada ventana oficial de 25 minutos,
+    # incluso si GitHub retrasa o descarta una corrida programada.
+    - cron: "3,8,13,18,23,28,33,38,43,48,53,58 * * * *"
   workflow_dispatch: {}
 
 # Puede haber varios despertares casi simultaneos (schedule, reintentos o
