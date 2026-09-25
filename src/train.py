@@ -434,7 +434,7 @@ def main() -> None:
     summary = {
         "candidates": results,
         "accuracy_by_horizon": accuracy_by_horizon,
-        "fragility_gap": fragility_gap,
+        "dependencia_rf": dependencia_rf,
         "winner_this_run": winner_name,
         "version_id": version_id,
         "promoted": bool(promote),
