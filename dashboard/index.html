@@ -2,293 +2,455 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pulso TransMi — Estado del sistema</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Pulso TransMi: qué tan bien predice el modelo la demanda de las estaciones de TransMilenio, ciclo a ciclo.">
+<title>Pulso TransMi - Centro de control</title>
+<script>
+(function(){try{var t=localStorage.getItem("pulso-theme");if(!t)t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.dataset.theme=t}catch(e){document.documentElement.dataset.theme="light"}})();
+</script>
 <style>
-  :root {
-    color-scheme: light;
-    --plane: #f9f9f7;
-    --surface: #fcfcfb;
-    --ink: #0b0b0b;
-    --ink-2: #52514e;
-    --muted: #898781;
-    --grid: #e1e0d9;
-    --axis: #c3c2b7;
-    --border: rgba(11,11,11,0.10);
-    --series: #2a78d6;
-    --good: #0ca30c;
-    --warning: #fab219;
-    --serious: #ec835a;
-    --critical: #d03b3b;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      color-scheme: dark;
-      --plane: #0d0d0d; --surface: #1a1a19; --ink: #fff; --ink-2: #c3c2b7;
-      --muted: #898781; --grid: #2c2c2a; --axis: #383835;
-      --border: rgba(255,255,255,0.10); --series: #3987e5;
-    }
-  }
-  :root[data-theme="dark"] {
-    color-scheme: dark;
-    --plane: #0d0d0d; --surface: #1a1a19; --ink: #fff; --ink-2: #c3c2b7;
-    --muted: #898781; --grid: #2c2c2a; --axis: #383835;
-    --border: rgba(255,255,255,0.10); --series: #3987e5;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--plane); color: var(--ink);
-    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-    line-height: 1.5;
-  }
-  .wrap { max-width: 1100px; margin: 0 auto; padding: 32px 16px 64px; }
-  header { margin-bottom: 28px; }
-  h1 { font-size: 1.6rem; margin: 0 0 4px; letter-spacing: -0.01em; }
-  .sub { color: var(--ink-2); font-size: 0.9rem; margin: 0; }
-  .sub a { color: var(--series); }
-  h2 { font-size: 1rem; margin: 0 0 2px; }
-  .hint { color: var(--muted); font-size: 0.8rem; margin: 0 0 14px; }
-  .card {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: 10px; padding: 18px; margin-bottom: 18px;
-  }
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin-bottom: 18px; }
-  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
-  .tile .label { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
-  .tile .value { font-size: 1.9rem; font-weight: 600; margin-top: 4px; letter-spacing: -0.02em; }
-  .tile .note { color: var(--ink-2); font-size: 0.8rem; margin-top: 2px; word-break: break-word; }
-  .estado { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; font-weight: 500; }
-  .punto { width: 9px; height: 9px; border-radius: 50%; flex: none; }
-  .vacio { color: var(--ink-2); font-size: 0.9rem; padding: 26px 8px; text-align: center; border: 1px dashed var(--axis); border-radius: 8px; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
-  th { text-align: left; color: var(--muted); font-weight: 500; padding: 6px 8px; border-bottom: 1px solid var(--grid); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; }
-  td { padding: 7px 8px; border-bottom: 1px solid var(--grid); color: var(--ink-2); }
-  td.dato { color: var(--ink); }
-  details { margin-top: 12px; }
-  summary { cursor: pointer; color: var(--muted); font-size: 0.8rem; }
-  .senal { display: flex; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--grid); font-size: 0.87rem; }
-  .senal:last-child { border-bottom: none; }
-  .senal .tipo { font-weight: 600; flex: none; }
-  svg { display: block; width: 100%; height: auto; overflow: visible; }
-  .eje { font-size: 10px; fill: var(--muted); font-variant-numeric: tabular-nums; }
-  footer { color: var(--muted); font-size: 0.78rem; margin-top: 30px; border-top: 1px solid var(--grid); padding-top: 14px; }
+:root{color-scheme:light;--bg:#f3f1e9;--card:#fffefa;--soft:#f6f4ec;--dark:#082d25;--dark2:#14503f;--ink:#172721;--ink2:#50635b;--muted:#6a7a73;--line:#dce2dc;--gold:#c99b2a;--goldsoft:#f5ebca;--green:#177a55;--greensoft:#dff1e7;--orange:#b8611f;--orangesoft:#faeadc;--red:#b7463d;--redsoft:#f8e5e2;--blue:#2f6fa3;--bluesoft:#e5f0f8;--shadow:0 6px 24px rgba(8,45,37,.07)}
+:root[data-theme=dark]{color-scheme:dark;--bg:#071a16;--card:#0e2821;--soft:#12342a;--dark:#061c17;--dark2:#1e6b56;--ink:#eef6f1;--ink2:#b5c7bf;--muted:#8fa69c;--line:#25483d;--gold:#e0bc58;--goldsoft:#3e361d;--green:#58bd8c;--greensoft:#173f31;--orange:#e79b62;--orangesoft:#4b2e20;--red:#e07b71;--redsoft:#492522;--blue:#70adde;--bluesoft:#173649;--shadow:0 6px 24px rgba(0,0,0,.25)}
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:80px}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;overflow-x:hidden}
+button,select{font:inherit;color:inherit}button{cursor:pointer}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.topbar{position:sticky;top:0;z-index:30;background:var(--dark);color:#fff;border-bottom:1px solid #ffffff1c}
+.topinner{max-width:1240px;height:60px;margin:auto;padding:0 20px;display:flex;align-items:center;gap:16px}
+.brand{display:flex;gap:10px;align-items:center;font-weight:800;letter-spacing:-.02em;line-height:1.15}
+.logo{width:32px;height:32px;display:grid;place-items:center;border-radius:9px;background:#d1ad4e;color:var(--dark);font-size:18px;font-weight:900}
+.brand small{display:block;color:#aac8bc;font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:600}
+.nav{margin-left:auto;display:flex;gap:2px;overflow-x:auto}.nav a{color:#c3d7cf;text-decoration:none;padding:7px 10px;border-radius:8px;font-size:13px;white-space:nowrap}.nav a:hover{background:#ffffff14;color:#fff}
+.iconbtn{border:1px solid #ffffff30;background:#ffffff12;color:#fff;border-radius:9px;padding:7px 11px;font-size:13px}
+.page{max-width:1240px;margin:auto;padding:24px 20px 60px}
+.hero{display:grid;grid-template-columns:1fr auto;gap:20px;align-items:end;margin-bottom:18px}
+.eyebrow{margin:0 0 6px;color:var(--green);font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+h1{margin:0;font-size:clamp(26px,4.6vw,42px);line-height:1.08;letter-spacing:-.04em}
+.lead{max-width:720px;margin:10px 0 0;color:var(--ink2)}
+.live{min-width:250px;padding:14px 16px;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+.live strong{display:flex;align-items:center;gap:9px}.live small{display:block;margin-top:4px;color:var(--muted)}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--muted);flex:none}
+.dot.good{background:var(--green);box-shadow:0 0 0 4px var(--greensoft)}.dot.warn{background:var(--orange);box-shadow:0 0 0 4px var(--orangesoft)}.dot.bad{background:var(--red);box-shadow:0 0 0 4px var(--redsoft)}
+
+/* estado general */
+.status{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center;padding:16px 18px;margin-bottom:14px;border-radius:16px;border:1px solid var(--line);background:var(--card);box-shadow:var(--shadow)}
+.status .big{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;font-size:22px;font-weight:900;color:#fff;background:var(--muted)}
+.status.good .big{background:var(--green)}.status.warn .big{background:var(--orange)}.status.bad .big{background:var(--red)}
+.status h2{margin:0;font-size:18px;letter-spacing:-.02em}.status p{margin:2px 0 0;color:var(--ink2);font-size:13px}
+.pills{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:99px;font-size:12px;font-weight:700;background:var(--soft);color:var(--ink2);border:1px solid var(--line)}
+.pill i{width:8px;height:8px;border-radius:50%;background:var(--muted)}.pill.good i{background:var(--green)}.pill.warn i{background:var(--orange)}.pill.bad i{background:var(--red)}
+
+/* filtros */
+.filters{position:sticky;top:60px;z-index:20;display:flex;gap:10px 14px;flex-wrap:wrap;align-items:flex-end;padding:10px 12px;margin-bottom:16px;background:color-mix(in srgb,var(--card) 94%,transparent);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:14px}
+.f{display:grid;gap:3px}.f>span{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.segments{display:flex;padding:3px;background:var(--soft);border:1px solid var(--line);border-radius:10px}
+.segments button{border:0;background:transparent;color:var(--ink2);padding:6px 10px;border-radius:7px;font-size:13px;font-weight:700;white-space:nowrap}
+.segments button.active{background:var(--dark);color:#fff}
+.select{padding:7px 9px;border:1px solid var(--line);border-radius:9px;background:var(--soft);font-size:13px;max-width:100%}
+.btn{border:1px solid var(--line);background:var(--card);padding:7px 12px;border-radius:9px;font-weight:700;font-size:13px}.btn:disabled{opacity:.5}
+.spacer{margin-left:auto}
+
+/* kpis */
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:16px}
+.kpi{padding:14px 15px;background:var(--card);border:1px solid var(--line);border-left:4px solid var(--kc,var(--line));border-radius:14px;box-shadow:var(--shadow);min-width:0}
+.kpi.good{--kc:var(--green)}.kpi.warn{--kc:var(--orange)}.kpi.bad{--kc:var(--red)}.kpi.info{--kc:var(--blue)}
+.label{color:var(--muted);font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}
+.value{margin-top:6px;font-size:28px;line-height:1.05;font-weight:850;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.value small{font-size:13px;font-weight:700;color:var(--muted);letter-spacing:0}
+.note{margin-top:6px;color:var(--ink2);font-size:12px}
+.delta{display:inline-block;padding:1px 7px;border-radius:99px;font-weight:800;font-size:11px}.delta.up{color:var(--green);background:var(--greensoft)}.delta.down{color:var(--red);background:var(--redsoft)}
+
+/* ciclos */
+.cycles{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+.cyc{padding:14px 16px;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow)}
+.cyc h3{margin:0 0 6px;font-size:13px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.cyc .row{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--ink2)}.cyc b{color:var(--ink)}
+.cyc .big{font-size:22px;font-weight:850;letter-spacing:-.02em;margin-bottom:4px}
+
+.grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:16px;margin-bottom:16px}
+.grid.even{grid-template-columns:1fr 1fr}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);min-width:0;overflow:hidden}
+.head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:16px 18px 8px;flex-wrap:wrap}
+.head h2{margin:0;font-size:17px;letter-spacing:-.02em}.hint{margin:3px 0 0;color:var(--muted);font-size:12px}
+.body{padding:6px 18px 18px}
+.badge{display:inline-flex;padding:3px 9px;border-radius:99px;background:var(--soft);color:var(--ink2);font-size:11px;font-weight:800;white-space:nowrap}
+.badge.good{color:var(--green);background:var(--greensoft)}.badge.warn{color:var(--orange);background:var(--orangesoft)}.badge.bad{color:var(--red);background:var(--redsoft)}
+.chartwrap{position:relative;width:100%;min-height:200px}
+.chart{display:block;width:100%;touch-action:pan-y;user-select:none;-webkit-user-select:none}
+.axis{fill:var(--muted);font-size:11px}
+.legend{display:flex;gap:6px 14px;flex-wrap:wrap;margin-top:6px;color:var(--muted);font-size:11px}.legend i{display:inline-block;width:10px;height:3px;margin-right:5px;vertical-align:middle;border-radius:2px}
+.insight{margin-top:10px;padding:10px 12px;background:var(--soft);border-left:3px solid var(--gold);border-radius:0 10px 10px 0;color:var(--ink2);font-size:13px}
+#tip{position:fixed;z-index:100;pointer-events:none;max-width:260px;padding:8px 11px;background:var(--dark);color:#fff;border:1px solid #ffffff22;border-radius:9px;font-size:12px;box-shadow:0 10px 30px #0004;opacity:0;transition:opacity .08s}
+#tip b{display:block;font-size:14px}#tip span{color:#bad0c7;display:block}
+
+/* barras */
+.bars{display:grid;gap:8px}
+.bar{display:grid;grid-template-columns:minmax(120px,1.2fr) 2fr 46px;gap:10px;align-items:center;padding:3px 4px;border-radius:8px;border:0;background:none;text-align:left;width:100%}
+.bar:hover{background:var(--soft)}.bar.sel{background:var(--goldsoft)}
+.bar strong{display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:12px}.bar small{color:var(--muted);font-size:10px}
+.track{height:9px;border-radius:20px;background:var(--soft);overflow:hidden;border:1px solid var(--line)}.fill{height:100%;border-radius:20px;background:var(--green)}.fill.warn{background:var(--orange)}.fill.bad{background:var(--red)}
+.num{text-align:right;font-weight:800;font-size:12px;font-variant-numeric:tabular-nums}
+.hbars{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.hb{padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--soft);text-align:center}
+.hb .h{font-size:11px;color:var(--muted);font-weight:800;text-transform:uppercase;letter-spacing:.06em}.hb .v{font-size:24px;font-weight:850;margin:4px 0}
+.hb .b{height:6px;border-radius:9px;background:var(--line);overflow:hidden}.hb .b i{display:block;height:100%}
+.tablewrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{padding:8px;text-align:left;color:var(--muted);font-size:10px;letter-spacing:.06em;text-transform:uppercase;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:8px;border-bottom:1px solid var(--line);color:var(--ink2)}td.p{color:var(--ink);font-weight:700}
+.heat td.c{text-align:center;font-weight:800;font-variant-numeric:tabular-nums;color:#fff;min-width:54px}
+.heat td.c.good{background:var(--green)}.heat td.c.warn{background:var(--orange)}.heat td.c.bad{background:var(--red)}.heat td.c.none{background:var(--soft);color:var(--muted)}
+.heat tr.sel td.p{background:var(--goldsoft)}.heat tbody tr{cursor:pointer}
+
+/* drift */
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 10px}
+.chip{border:1px solid var(--line);background:var(--soft);padding:4px 10px;border-radius:99px;font-size:12px;font-weight:700;color:var(--ink2)}.chip.active{background:var(--dark);color:#fff;border-color:var(--dark)}
+.alerts{display:grid;gap:8px}
+.alert{display:grid;grid-template-columns:32px 1fr;gap:10px;padding:11px;border:1px solid var(--line);border-radius:12px;background:var(--soft)}
+.aicon{width:32px;height:32px;display:grid;place-items:center;border-radius:9px;font-weight:900;background:var(--af);color:var(--ac)}
+.alert strong{font-size:12px}.alert p{margin:2px 0 4px;color:var(--ink2);font-size:12px}.alert small{color:var(--muted);font-size:11px}
+.gauge{height:5px;margin:5px 0;border-radius:9px;background:var(--line);position:relative;overflow:visible}.gauge i{display:block;height:100%;border-radius:9px;background:var(--ac)}.gauge u{position:absolute;top:-3px;width:2px;height:11px;background:var(--ink);text-decoration:none}
+
+/* salud */
+.strip{display:grid;grid-template-columns:repeat(30,1fr);gap:3px;height:46px;align-items:end;margin:6px 0 12px}
+.sb{min-width:3px;border-radius:3px;background:var(--green)}.sb.failed{background:var(--red)}.sb.no_new_data{background:var(--muted);opacity:.55}
+.mini3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.mini{padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:var(--soft)}.mini span{display:block;color:var(--muted);font-size:10px;text-transform:uppercase;font-weight:800}.mini strong{font-size:16px}
+.empty,.error{min-height:110px;display:grid;place-items:center;text-align:center;padding:20px;color:var(--muted);border:1px dashed var(--line);border-radius:12px;font-size:13px}.error{color:var(--red);background:var(--redsoft)}
+.skeleton{min-height:110px;border-radius:12px;background:linear-gradient(90deg,var(--soft) 25%,var(--line) 45%,var(--soft) 65%);background-size:300% 100%;animation:sh 1.5s infinite}@keyframes sh{to{background-position:-150% 0}}
+details.gl{margin-top:16px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 18px}details.gl summary{cursor:pointer;font-weight:800}
+.gl dl{display:grid;grid-template-columns:max-content 1fr;gap:6px 16px;margin:10px 0 0;font-size:13px;color:var(--ink2)}.gl dt{font-weight:800;color:var(--ink)}.gl dd{margin:0}
+footer{margin-top:22px;padding:16px 0;border-top:1px solid var(--line);display:flex;gap:16px;justify-content:space-between;flex-wrap:wrap;color:var(--muted);font-size:11px}footer a{color:var(--green)}
+
+@media(max-width:1080px){.kpis{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:920px){.grid,.grid.even{grid-template-columns:1fr}.hero{grid-template-columns:1fr}.live{min-width:0}.cycles{grid-template-columns:1fr}}
+@media(max-width:640px){
+ .page{padding:16px 12px 50px}.topinner{padding:0 12px}.nav{display:none}.iconbtn{margin-left:auto}
+ .kpis{grid-template-columns:repeat(2,1fr);gap:8px}.value{font-size:23px}
+ .filters{position:static;padding:10px}.f{width:100%}.segments{width:100%}.segments button{flex:1;padding:8px 4px}.select{width:100%;padding:9px}.spacer{margin-left:0}.btn{width:100%;padding:10px}
+ .bar{grid-template-columns:minmax(90px,1fr) 1.2fr 40px}.hbars{grid-template-columns:repeat(2,1fr)}.mini3{grid-template-columns:1fr 1fr 1fr}.status{grid-template-columns:1fr}
+ .head{padding:14px 14px 6px}.body{padding:6px 14px 14px}footer{flex-direction:column}
+}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
-<div class="wrap">
-<header>
-  <h1>Pulso TransMi — Estado del sistema</h1>
-  <p class="sub">
-    Equipo Kevin Nieto · Grupo A · <span id="actualizado">cargando…</span> ·
-    <a href="https://github.com/kevin-nieto-callejas/pulso-transmi">repositorio</a>
-  </p>
-</header>
-
-<div class="tiles" id="tiles"></div>
-
-<section class="card">
-  <h2>Accuracy por ciclo</h2>
-  <p class="hint">Desempeño real de cada entrega evaluada. Las marcas verticales señalan cambios de modelo, para poder relacionar una caída con una promoción.</p>
-  <div id="tendencia"></div>
+<header class="topbar"><div class="topinner">
+ <div class="brand"><span class="logo">P</span><span>Pulso TransMi<small>Centro de control</small></span></div>
+ <nav class="nav"><a href="#resumen">Resumen</a><a href="#rendimiento">Rendimiento</a><a href="#detalle">Estaciones y horizontes</a><a href="#alertas">Alertas</a><a href="#modelos">Modelos</a></nav>
+ <button class="iconbtn" id="theme" aria-label="Cambiar entre modo claro y oscuro">Modo</button>
+</div></header>
+<main class="page">
+<section class="hero" id="resumen">
+ <div><p class="eyebrow">Predicción de demanda · Estaciones de TransMilenio</p><h1>¿Qué tan bien está prediciendo el modelo?</h1><p class="lead">Cada ciclo el modelo predice cuántas personas llegarán a cada estación en los próximos 15, 30, 45 y 60 minutos. Aquí se compara con lo que realmente ocurrió.</p></div>
+ <div class="live"><strong><span class="dot" id="dot"></span><span id="statusText">Conectando…</span></strong><small id="updated">Preparando datos…</small></div>
 </section>
 
-<section class="card">
-  <h2>Accuracy por estación</h2>
-  <p class="hint">La métrica oficial promedia las 12 estaciones sin ponderar: una estación grande no puede tapar a una pequeña.</p>
-  <div id="estaciones"></div>
+<section class="status" id="overall"><div class="big">…</div><div><h2>Calculando estado general…</h2></div></section>
+
+<section class="filters" aria-label="Filtros">
+ <div class="f"><span>Ciclos</span><div class="segments" id="fScope"><button class="active" data-v="official">Oficiales</button><button data-v="all">Todos (incl. pruebas)</button></div></div>
+ <div class="f"><span>Ventana</span><div class="segments" id="fWindow"><button data-v="24">Últimos 24</button><button class="active" data-v="48">Últimos 48</button><button data-v="0">Todo</button></div></div>
+ <div class="f"><span>Estación</span><select class="select" id="fStation"><option value="all">Todas las estaciones</option></select></div>
+ <div class="f"><span>Horizonte</span><select class="select" id="fHorizon"><option value="all">Todos (15–60 min)</option><option value="15">15 min</option><option value="30">30 min</option><option value="45">45 min</option><option value="60">60 min</option></select></div>
+ <div class="f spacer"><span>&nbsp;</span><div style="display:flex;gap:8px"><button class="btn" id="resetZoom" hidden>Quitar zoom</button><button class="btn" id="refresh">Actualizar</button></div></div>
 </section>
 
-<section class="card">
-  <h2>Señales de drift</h2>
-  <p class="hint">Degradación de rendimiento, cambio en los datos de entrada, o falla operacional — sin tener que leer logs.</p>
-  <div id="senales"></div>
+<section class="kpis" id="kpis"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></section>
+<section class="cycles" id="cycles"></section>
+
+<section class="grid" id="rendimiento">
+ <article class="card"><div class="head"><div><h2>Acierto (accuracy) por ciclo</h2><p class="hint" id="trendHint">Mientras más alto, mejor. Arrastra sobre la gráfica para hacer zoom; pasa el cursor (o toca) para ver el detalle.</p></div><span class="badge" id="cyclecount">…</span></div>
+ <div class="body"><div class="chartwrap" id="trend"><div class="skeleton"></div></div><div class="legend" id="trendLegend"></div><div id="insight"></div></div></article>
+ <article class="card"><div class="head"><div><h2>Sesgo: ¿predice de más o de menos?</h2><p class="hint">Predicho frente a real en cada ciclo. Sobre 0 = sobreestima; bajo 0 = subestima.</p></div></div>
+ <div class="body"><div class="chartwrap" id="bias"><div class="skeleton"></div></div><div id="biasNote"></div></div></article>
 </section>
 
-<section class="card">
-  <h2>Salud operacional</h2>
-  <p class="hint">Últimas ejecuciones del recolector. Una falla aquí explica un accuracy bajo mejor que cualquier teoría sobre el modelo.</p>
-  <div id="operacion"></div>
+<section class="grid even" id="detalle">
+ <article class="card"><div class="head"><div><h2>Acierto por horizonte</h2><p class="hint">Cuánto se predice hacia adelante. Lo normal es que 60 min sea más difícil que 15 min.</p></div></div><div class="body" id="horizons"><div class="skeleton"></div></div></article>
+ <article class="card"><div class="head"><div><h2>Acierto por estación</h2><p class="hint">Promedio de la ventana. Toca una estación para filtrar toda la página.</p></div><select class="select" id="stationsort"><option value="asc">Más débiles primero</option><option value="desc">Mejores primero</option><option value="name">Por nombre</option></select></div><div class="body" id="stations"><div class="skeleton"></div></div></article>
+</section>
+<section class="card" style="margin-bottom:16px"><div class="head"><div><h2>Mapa estación × horizonte</h2><p class="hint">Verde = buen acierto, naranja = regular, rojo = débil. Toca una fila para filtrar por estación.</p></div></div><div class="body tablewrap" id="heat"><div class="skeleton"></div></div></section>
+
+<section class="grid even" id="alertas">
+ <article class="card"><div class="head"><div><h2>Señales de drift y alertas</h2><p class="hint">Drift = el mundo cambió y el modelo puede estar quedando viejo.</p></div></div><div class="body"><div class="chips" id="chips"></div><div class="alerts" id="signals"><div class="skeleton"></div></div></div></article>
+ <article class="card"><div class="head"><div><h2>Salud del recolector de datos</h2><p class="hint">Últimas 30 ejecuciones. Rojo = falló; gris = no había datos nuevos.</p></div><span class="badge" id="healthbadge">Verificando</span></div><div class="body" id="health"><div class="skeleton"></div></div></article>
 </section>
 
-<section class="card">
-  <h2>Historial de modelos</h2>
-  <p class="hint">Ningún modelo se borra: al ser reemplazado queda como histórico y se puede volver a él.</p>
-  <div id="modelos"></div>
-</section>
+<section class="card" id="modelos"><div class="head"><div><h2>Modelos: lo prometido vs lo real</h2><p class="hint">“Validación” es la nota en laboratorio; “Real” es el acierto medido en producción con datos que el modelo no había visto.</p></div></div><div class="body" id="models"><div class="skeleton"></div></div></section>
 
-<footer>
-  Datos leídos en vivo desde Supabase con la llave pública de solo lectura.
-  Las credenciales de escritura y la API key de envíos nunca llegan al navegador.
-  La posición en el leaderboard no se muestra aquí a propósito: consultarla exige
-  la API key privada del participante.
-</footer>
-</div>
-
+<details class="gl"><summary>¿Qué significa cada término?</summary><dl>
+ <dt>Accuracy (acierto)</dt><dd>100 − error porcentual ponderado (WAPE). 90 significa que, en total, el error fue el 10 % de la demanda real.</dd>
+ <dt>WAPE</dt><dd>Suma de errores absolutos dividida entre la suma de la demanda real.</dd>
+ <dt>Sesgo</dt><dd>(Total predicho ÷ total real) − 1. Positivo: el modelo predice de más; negativo: predice de menos.</dd>
+ <dt>Horizonte</dt><dd>Cuántos minutos hacia el futuro se predice (15, 30, 45 o 60).</dd>
+ <dt>Ciclo</dt><dd>Una ronda de predicciones para todas las estaciones. “Oficial” cuenta para la competencia; los demás son pruebas.</dd>
+ <dt>Drift</dt><dd>Cambio en los datos, en el rendimiento o en la operación que puede hacer perder calidad al modelo.</dd>
+ <dt>Champion</dt><dd>El modelo vigente que genera las predicciones oficiales.</dd>
+ <dt>Semáforo</dt><dd>Verde ≥ <span id="glGood"></span>, naranja ≥ <span id="glWarn"></span>, rojo por debajo (umbrales acordados para este panel).</dd>
+</dl></details>
+<footer><span>Lectura pública protegida por RLS. Ninguna credencial administrativa ni API key de entregas llega al navegador. El leaderboard oficial requiere la API key privada, por eso no se consulta desde aquí.</span><span><a href="https://github.com/kevin-nieto-callejas/pulso-transmi">Repositorio y metodología</a> · Kevin Nieto</span></footer>
+</main>
+<div id="tip" role="tooltip"></div>
 <script>
-const SUPABASE_URL = "https://bawwhejgcvlawfqualrj.supabase.co";
-const ANON_KEY = "sb_publishable_b4hvWnqi4Sf_6OlOQ_27xw_KY7pgFaD";
+const CONFIG={url:"https://bawwhejgcvlawfqualrj.supabase.co",key:"sb_publishable_b4hvWnqi4Sf_6OlOQ_27xw_KY7pgFaD",timeout:20000};
+const GOOD=82,WARN=75,BIAS_OK=3;
+const HORIZONS=[15,30,45,60];
+const state={scope:"official",window:48,station:"all",horizon:"all",stationSort:"asc",signal:"all",zoom:null,data:null,preds:null};
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const esc=v=>String(v??"").replace(/[<>&"']/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt=(v,d=1)=>v==null||!isFinite(v)?"—":Number(v).toLocaleString("es-CO",{minimumFractionDigits:d,maximumFractionDigits:d});
+const fdate=v=>new Date(v).toLocaleString("es-CO",{dateStyle:"medium",timeStyle:"short"});
+const fshort=v=>{const d=new Date(v);return d.toLocaleDateString("es-CO",{day:"2-digit",month:"short"})+" "+d.toLocaleTimeString("es-CO",{hour:"2-digit",minute:"2-digit",hour12:false})};
+const mean=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:null;
+const sd=a=>{const m=mean(a);return a.length?Math.sqrt(mean(a.map(v=>(v-m)**2))):null};
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const tone=a=>a==null?"none":a>=GOOD?"good":a>=WARN?"warn":"bad";
+const toneWord={good:"Bien",warn:"Regular",bad:"Débil",none:"Sin datos"};
+function rel(ms){const m=Math.round(Math.abs(ms)/60000);const t=m<60?m+" min":m<1440?Math.round(m/60)+" h":Math.round(m/1440)+" d";return t}
+function relFrom(t){const d=new Date(t)-Date.now();return d<0?"hace "+rel(d):"en "+rel(d)}
 
-const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-const esc = (s) => String(s ?? "").replace(/[<>&"]/g, c => ({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c]));
+/* tooltip global */
+const tip=$("#tip");
+function showTip(html,x,y){tip.innerHTML=html;tip.style.opacity=1;const w=tip.offsetWidth,h=tip.offsetHeight;let l=x+14,t=y-h-12;if(l+w>innerWidth-6)l=x-w-14;if(l<6)l=6;if(t<6)t=y+16;tip.style.left=l+"px";tip.style.top=t+"px"}
+function hideTip(){tip.style.opacity=0}
+document.addEventListener("pointermove",e=>{const el=e.target.closest&&e.target.closest("[data-tip]");if(el)showTip(el.dataset.tip,e.clientX,e.clientY);else if(!e.target.closest||!e.target.closest(".chart"))hideTip()});
+document.addEventListener("pointerdown",e=>{const el=e.target.closest&&e.target.closest("[data-tip]");if(el)showTip(el.dataset.tip,e.clientX,e.clientY)});
+document.addEventListener("scroll",hideTip,{passive:true});
 
-async function tabla(nombre, query) {
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/${nombre}?${query}&apikey=${ANON_KEY}`);
-  if (!r.ok) throw new Error(`${nombre}: ${r.status}`);
-  return r.json();
+async function query(table,params){const c=new AbortController(),t=setTimeout(()=>c.abort(),CONFIG.timeout);try{const r=await fetch(CONFIG.url+"/rest/v1/"+table+"?"+params,{headers:{apikey:CONFIG.key},signal:c.signal});if(!r.ok)throw new Error(table+" respondió "+r.status);return r.json()}finally{clearTimeout(t)}}
+async function loadPreds(){
+ const rows=[];for(let off=0;off<20000;off+=1000){
+  const page=await query("predictions","select=cycle_id,station_id,horizon_minutes,predicted_value,model_version_id,prediction_evaluations(actual_value)&order=id&limit=1000&offset="+off);
+  page.forEach(p=>{const ev=Array.isArray(p.prediction_evaluations)?p.prediction_evaluations[0]:p.prediction_evaluations;if(ev&&ev.actual_value!=null)rows.push({c:p.cycle_id,s:p.station_id,h:p.horizon_minutes,p:p.predicted_value,a:ev.actual_value,m:p.model_version_id})});
+  if(page.length<1000)break}
+ return rows}
+
+async function load(){
+ const btn=$("#refresh");btn.disabled=true;btn.textContent="Actualizando…";$("#statusText").textContent="Leyendo datos…";
+ try{
+  const [models,metrics,signals,runs,submissions,stations,cycles,obs]=await Promise.all([
+   query("model_versions","select=version_id,status,validation_metric,created_at&order=created_at.desc"),
+   query("cycle_metrics","select=cycle_id,station_id,accuracy,wape,computed_at&order=computed_at.asc&limit=5000"),
+   query("drift_signals","select=detected_at,signal_type,description,metric_value,threshold_value,action_taken&order=detected_at.desc&limit=100"),
+   query("collector_runs","select=started_at,finished_at,status,rows_ingested,error_message&order=started_at.desc&limit=30"),
+   query("submissions","select=submission_id,cycle_id,accepted,submitted_at,model_version_id&order=submitted_at.desc&limit=1000"),
+   query("stations","select=station_id,station_name,corridor&order=station_id"),
+   query("cycles","select=cycle_id,opens_at,closes_at,status&order=opens_at.asc&limit=1000"),
+   query("observations","select=count&limit=1")]);
+  state.data={models,metrics,signals,runs,submissions,stations,cycles,obs:Number(obs[0]?.count??0)};
+  fillStations();setStatus("good","Datos conectados");$("#updated").textContent="Actualizado "+fdate(new Date());renderAll();
+  loadPreds().then(p=>{state.preds=p;state.predsErr=null;renderAll()}).catch(e=>{state.preds=[];state.predsErr=e.message;renderAll()});
+ }catch(err){
+  setStatus("bad","No se pudo actualizar");$("#updated").textContent=err.name==="AbortError"?"La consulta agotó el tiempo":err.message;
+  const box='<div class="error"><div><strong>No pudimos leer los datos.</strong><br>'+esc(err.message)+'<br>Revisa tu conexión y toca “Actualizar”.</div></div>';
+  ["#kpis","#trend","#stations"].forEach(s=>$(s).innerHTML=box)}
+ finally{btn.disabled=false;btn.textContent="Actualizar"}
+}
+function setStatus(t,text){$("#dot").className="dot "+t;$("#statusText").textContent=text}
+function fillStations(){const sel=$("#fStation"),cur=state.station;sel.innerHTML='<option value="all">Todas las estaciones</option>'+state.data.stations.map(s=>'<option value="'+esc(s.station_id)+'">'+esc(s.station_name??s.station_id)+"</option>").join("");sel.value=cur}
+const stName=id=>{const s=state.data.stations.find(x=>x.station_id===id);return s?.station_name??id};
+
+/* ---------- cálculo ---------- */
+function agg(rows){let A=0,E=0,P=0;for(const r of rows){A+=r.a;P+=r.p;E+=Math.abs(r.p-r.a)}return{n:rows.length,acc:A>0?100*(1-E/A):null,bias:A>0?(P/A-1)*100:null}}
+function predsBy(){const st=state.station,h=state.horizon;return(state.preds||[]).filter(r=>(st==="all"||r.s===st)&&(h==="all"||r.h===Number(h)))}
+function scopedCycles(){const d=state.data;return d.cycles.filter(c=>state.scope==="all"||c.cycle_id.startsWith("cyc_official"))}
+function series(){
+ const d=state.data,meta=new Map(),official=state.station==="all"&&state.horizon==="all";
+ d.metrics.filter(m=>m.station_id===null).forEach(m=>meta.set(m.cycle_id,m));
+ const byC={};predsBy().forEach(r=>(byC[r.c]??=[]).push(r));
+ const out=[];
+ for(const c of scopedCycles()){
+  const g=agg(byC[c.cycle_id]||[]),m=meta.get(c.cycle_id);
+  const acc=official?(m?m.accuracy:g.acc):g.acc;
+  if(acc==null)continue;
+  out.push({id:c.cycle_id,t:c.opens_at,acc,bias:g.bias,n:g.n})}
+ return out}
+function windowed(all){return state.window?all.slice(-state.window):all}
+function viewSeries(){const w=windowed(series());if(state.zoom){const a=Math.max(0,state.zoom[0]),b=Math.min(w.length-1,state.zoom[1]);if(b-a>=1)return w.slice(a,b+1)}return w}
+
+function renderAll(){
+ if(!state.data)return;
+ const w=windowed(series()),view=viewSeries();
+ $("#resetZoom").hidden=!(state.zoom&&view.length!==w.length);
+ renderOverall(w);renderKpis(w,view);renderCycles(w);renderTrend(view,w);renderBias(view);renderHorizons(view);renderStations(view);renderHeat(view);renderSignals();renderHealth();renderModels();
 }
 
-function vacio(msg) { return `<div class="vacio">${msg}</div>`; }
-
-/* --- Gráfica de línea: una sola serie, sin leyenda (el título la nombra) --- */
-function lineaAccuracy(datos, promociones) {
-  if (!datos.length) {
-    return vacio("Todavía no hay ciclos evaluados.<br>Aparecerán aquí en cuanto la competencia publique los valores reales.");
-  }
-  const W = 860, H = 260, L = 44, R = 16, T = 12, B = 34;
-  const vals = datos.map(d => d.accuracy);
-  const min = Math.floor(Math.min(...vals, 80) - 2), max = Math.ceil(Math.max(...vals, 90) + 2);
-  const x = i => L + (datos.length === 1 ? (W-L-R)/2 : i * (W - L - R) / (datos.length - 1));
-  const y = v => T + (max - v) * (H - T - B) / (max - min);
-
-  const ticks = [];
-  for (let v = min; v <= max; v += Math.max(1, Math.round((max - min) / 5))) ticks.push(v);
-
-  const linea = datos.map((d, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(d.accuracy).toFixed(1)}`).join(" ");
-
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Accuracy por ciclo">
-    ${ticks.map(v => `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="${css("--grid")}" stroke-width="1"/>
-      <text class="eje" x="${L-8}" y="${y(v)+3}" text-anchor="end">${v}</text>`).join("")}
-    <line x1="${L}" x2="${W-R}" y1="${H-B}" y2="${H-B}" stroke="${css("--axis")}" stroke-width="1"/>
-    ${promociones.map(p => {
-      const i = datos.findIndex(d => d.computed_at >= p.created_at);
-      if (i < 0) return "";
-      return `<line x1="${x(i)}" x2="${x(i)}" y1="${T}" y2="${H-B}" stroke="${css("--axis")}" stroke-width="1"/>
-              <text class="eje" x="${x(i)+4}" y="${T+10}">modelo nuevo</text>`;
-    }).join("")}
-    <path d="${linea}" fill="none" stroke="${css("--series")}" stroke-width="2" stroke-linejoin="round"/>
-    ${datos.map((d, i) => `<circle cx="${x(i)}" cy="${y(d.accuracy)}" r="4" fill="${css("--series")}"
-        stroke="${css("--surface")}" stroke-width="2"><title>${esc(d.cycle_id)}: ${d.accuracy.toFixed(2)}</title></circle>`).join("")}
-    <text class="eje" x="${L}" y="${H-12}">${esc(datos[0].cycle_id)}</text>
-    <text class="eje" x="${W-R}" y="${H-12}" text-anchor="end">${esc(datos[datos.length-1].cycle_id)}</text>
-    <text x="${x(datos.length-1)}" y="${y(datos[datos.length-1].accuracy)-12}" text-anchor="end"
-      font-size="12" font-weight="600" fill="${css("--ink")}">${datos[datos.length-1].accuracy.toFixed(1)}</text>
-  </svg>`;
+/* ---------- estado general ---------- */
+function renderOverall(w){
+ const d=state.data,last=w.at(-1),lastRun=d.runs[0],items=[];let level="good";
+ const bump=l=>{if(l==="bad")level="bad";else if(l==="warn"&&level!=="bad")level="warn"};
+ if(last){const t=tone(last.acc);items.push([t==="good"?"good":t,"Acierto último ciclo: "+fmt(last.acc,1)]);bump(t)}else{items.push(["warn","Sin ciclos evaluados"]);bump("warn")}
+ if(lastRun){const ok=lastRun.status!=="failed";items.push([ok?"good":"bad","Recolector: "+(ok?"funcionando":"último intento falló")]);bump(ok?"good":"bad")}
+ const failed=d.runs.filter(r=>r.status==="failed").length;if(failed){items.push(["warn",failed+" fallos en las últimas 30 ejecuciones"]);bump("warn")}
+ const recent=d.signals.filter(s=>Date.now()-new Date(s.detected_at)<86400000);
+ items.push([recent.length>5?"warn":"good",recent.length+" alertas en 24 h"]);if(recent.length>5)bump("warn");
+ const champ=d.models.find(m=>m.status==="champion");items.push([champ?"good":"warn",champ?"Champion: "+modelName(champ.version_id):"Sin champion"]);
+ const titles={good:"Todo en orden",warn:"Funciona, pero hay puntos por vigilar",bad:"Requiere atención"};
+ const texts={good:"El acierto está dentro de lo esperado y los datos llegan con normalidad.",warn:"El sistema opera, pero algún indicador está por debajo de lo esperado. Revisa las alertas más abajo.",bad:"Hay un indicador crítico (acierto bajo o recolector caído)."};
+ const el=$("#overall");el.className="status "+level;
+ el.innerHTML='<div class="big" aria-hidden="true">'+(level==="good"?"✓":level==="warn"?"!":"×")+'</div><div><h2>'+titles[level]+"</h2><p>"+texts[level]+'</p><div class="pills">'+items.map(i=>'<span class="pill '+i[0]+'"><i></i>'+esc(i[1])+"</span>").join("")+"</div></div>";
 }
 
-/* --- Barras por estación: una serie, un solo color para todas --- */
-function barrasEstaciones(datos) {
-  if (!datos.length) return vacio("Sin evaluaciones por estación todavía.");
-  const W = 860, filaH = 26, L = 72, R = 48;
-  const H = datos.length * filaH + 10;
-  const max = 100;
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Accuracy por estación">
-    ${datos.map((d, i) => {
-      const ancho = (d.accuracy / max) * (W - L - R);
-      const yy = i * filaH + 4;
-      return `<text class="eje" x="${L-10}" y="${yy+13}" text-anchor="end">${esc(d.station_id)}</text>
-        <rect x="${L}" y="${yy}" width="${Math.max(ancho,2)}" height="16" rx="4" fill="${css("--series")}"><title>${esc(d.station_id)}: ${d.accuracy.toFixed(2)}</title></rect>
-        <text class="eje" x="${L+ancho+8}" y="${yy+13}" fill="${css("--ink-2")}">${d.accuracy.toFixed(1)}</text>`;
-    }).join("")}
-  </svg>`;
+/* ---------- KPIs ---------- */
+function kpi(label,value,note,cls,tipTxt){return '<article class="kpi '+cls+'"'+(tipTxt?' data-tip="'+esc(tipTxt)+'"':"")+'><div class="label">'+label+'</div><div class="value">'+value+'</div><div class="note">'+note+"</div></article>"}
+function renderKpis(w,view){
+ const d=state.data,champ=d.models.find(m=>m.status==="champion"),cur=w.at(-1),prev=w.at(-2),ch=cur&&prev?cur.acc-prev.acc:null;
+ const vals=view.map(v=>v.acc),avg=mean(vals);
+ const bs=state.preds?agg(predsBy().filter(r=>new Set(view.map(v=>v.id)).has(r.c))).bias:null;
+ const biasCls=bs==null?"info":Math.abs(bs)<=BIAS_OK?"good":"warn";
+ const biasWord=bs==null?"Calculando…":Math.abs(bs)<=BIAS_OK?"Equilibrado":bs>0?"Tiende a predecir de más":"Tiende a predecir de menos";
+ const acc=d.submissions.filter(s=>s.accepted).length,tot=d.submissions.length;
+ const okRuns=d.runs.filter(r=>r.status!=="failed").length,hp=d.runs.length?okRuns/d.runs.length*100:null;
+ const realVsVal=champ&&avg!=null?avg-champ.validation_metric:null;
+ $("#kpis").innerHTML=
+  kpi("Acierto último ciclo",cur?fmt(cur.acc,1)+" <small>/ 100</small>":"—",(ch==null?"Esperando evaluación":'<span class="delta '+(ch>=0?"up":"down")+'">'+(ch>=0?"▲":"▼")+" "+fmt(Math.abs(ch),1)+' pts</span> vs. ciclo anterior'),cur?tone(cur.acc):"info","Precisión del último ciclo evaluado con los filtros actuales.")+
+  kpi("Promedio de la ventana",avg==null?"—":fmt(avg,1)+" <small>/ 100</small>",avg==null?"":"Entre "+fmt(Math.min(...vals),1)+" y "+fmt(Math.max(...vals),1)+" · variación ±"+fmt(sd(vals),1),tone(avg))+
+  kpi("Sesgo",bs==null?"—":(bs>0?"+":"")+fmt(bs,1)+" <small>%</small>",biasWord,biasCls,"Predicho total ÷ real total − 1")+
+  kpi("Modelo vigente",champ?fmt(champ.validation_metric,1)+" <small>validación</small>":"—",champ?esc(modelName(champ.version_id))+" · desde "+new Date(champ.created_at).toLocaleDateString("es-CO")+(realVsVal!=null?" · real "+(realVsVal>=0?"+":"")+fmt(realVsVal,1)+" pts vs. validación":""):"Sin champion","info")+
+  kpi("Entregas aceptadas",acc.toLocaleString("es-CO")+" <small>de "+tot+"</small>",(tot?fmt(acc/tot*100,0):0)+"% aceptadas por la API",tot&&acc/tot<.9?"warn":"good")+
+  kpi("Recolector",hp==null?"—":fmt(hp,0)+"<small> % OK</small>",d.obs.toLocaleString("es-CO")+" observaciones guardadas",hp==null?"info":hp>=90?"good":hp>=70?"warn":"bad");
 }
 
-function tablaHTML(cabeceras, filas) {
-  if (!filas.length) return "";
-  return `<details><summary>Ver como tabla</summary><table>
-    <thead><tr>${cabeceras.map(h => `<th>${h}</th>`).join("")}</tr></thead>
-    <tbody>${filas.map(f => `<tr>${f.map((c,i) => `<td class="${i?'dato':''}">${c}</td>`).join("")}</tr>`).join("")}</tbody>
-  </table></details>`;
+/* ---------- último y próximo ciclo ---------- */
+function renderCycles(w){
+ const d=state.data,last=w.at(-1);if(!last){$("#cycles").innerHTML="";return}
+ const sub=d.submissions.find(s=>s.cycle_id===last.id),all=scopedCycles(),gaps=[];
+ for(let i=1;i<all.length;i++)gaps.push(new Date(all[i].opens_at)-new Date(all[i-1].opens_at));
+ gaps.sort((a,b)=>a-b);const gap=gaps.length?gaps[Math.floor(gaps.length/2)]:3600000;
+ const newest=all.at(-1),nextAt=new Date(new Date(newest.opens_at).getTime()+gap);
+ const late=nextAt<Date.now(),lateBy=Date.now()-nextAt;
+ $("#cycles").innerHTML=
+  '<div class="cyc"><h3>Último ciclo evaluado</h3><div class="big">'+fmt(last.acc,1)+' <span class="badge '+tone(last.acc)+'">'+toneWord[tone(last.acc)]+'</span></div><div class="row"><span>Abrió: <b>'+esc(fshort(last.t))+'</b></span>'+(last.bias!=null?'<span>Sesgo: <b>'+(last.bias>0?"+":"")+fmt(last.bias,1)+' %</b></span>':"")+(last.n?'<span>Predicciones: <b>'+last.n+"</b></span>":"")+'<span>Entrega: <b>'+(sub?(sub.accepted?"aceptada":"rechazada"):"sin registro")+"</b></span>"+(sub?'<span>Modelo: <b>'+esc(modelName(sub.model_version_id))+"</b></span>":"")+"</div></div>"+
+  '<div class="cyc"><h3>Próximo ciclo</h3><div class="big">'+(late?"Debería estar por abrir":"Abre "+relFrom(nextAt))+'</div><div class="row"><span>Estimado: <b>'+esc(fshort(nextAt))+'</b></span><span>Cada <b>~'+rel(gap)+'</b></span>'+(late&&lateBy>2*gap?'<span class="badge warn">Retraso de '+rel(lateBy)+"</span>":"")+'<span>Último ciclo abierto: <b>'+esc(fshort(newest.opens_at))+"</b></span></div></div>";
 }
 
-const COLOR_SENAL = { performance: "--critical", data: "--warning", operational: "--serious" };
-const NOMBRE_SENAL = { performance: "Rendimiento", data: "Datos", operational: "Operación" };
-
-async function cargar() {
-  document.getElementById("actualizado").textContent =
-    "actualizado " + new Date().toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" });
-
-  const [modelos, metricas, senales, corridas, envios, obs] = await Promise.all([
-    tabla("model_versions", "select=version_id,status,validation_metric,created_at&order=created_at.desc"),
-    tabla("cycle_metrics", "select=cycle_id,station_id,accuracy,computed_at&order=computed_at.asc"),
-    tabla("drift_signals", "select=detected_at,signal_type,description,action_taken&order=detected_at.desc&limit=8"),
-    tabla("collector_runs", "select=started_at,status,rows_ingested&order=started_at.desc&limit=12"),
-    tabla("submissions", "select=submission_id,cycle_id,accepted,submitted_at&order=submitted_at.desc"),
-    tabla("observations", "select=count"),
-  ]);
-
-  const champion = modelos.find(m => m.status === "champion");
-  const totales = metricas.filter(m => m.station_id === null);
-  const ultima = totales.length ? totales[totales.length - 1].accuracy : null;
-  const fallidas = corridas.filter(c => c.status === "failed").length;
-
-  /* Tiles */
-  document.getElementById("tiles").innerHTML = `
-    <div class="tile"><div class="label">Accuracy real</div>
-      <div class="value">${ultima !== null ? ultima.toFixed(2) : "—"}</div>
-      <div class="note">${ultima !== null ? "último ciclo evaluado" : "esperando el primer ciclo"}</div></div>
-    <div class="tile"><div class="label">Modelo champion</div>
-      <div class="value">${champion ? champion.validation_metric.toFixed(2) : "—"}</div>
-      <div class="note">${champion ? esc(champion.version_id) : "sin champion"}</div></div>
-    <div class="tile"><div class="label">Entregas aceptadas</div>
-      <div class="value">${envios.filter(e => e.accepted).length}</div>
-      <div class="note">${envios.length} submission(es) registradas</div></div>
-    <div class="tile"><div class="label">Recolector</div>
-      <div class="value"><span class="estado">
-        <span class="punto" style="background:${css(fallidas ? "--critical" : "--good")}"></span>
-        ${fallidas ? fallidas + " con fallo" : "en orden"}</span></div>
-      <div class="note">${obs[0]?.count?.toLocaleString("es-CO") ?? "—"} observaciones guardadas</div></div>`;
-
-  /* Tendencia */
-  const promos = modelos.filter(m => m.status !== "candidate");
-  document.getElementById("tendencia").innerHTML = lineaAccuracy(totales, promos) +
-    tablaHTML(["Ciclo", "Accuracy"], totales.map(t => [esc(t.cycle_id), t.accuracy.toFixed(2)]));
-
-  /* Estaciones: promedio por estación sobre todo lo evaluado */
-  const porEstacion = {};
-  metricas.filter(m => m.station_id !== null).forEach(m => {
-    (porEstacion[m.station_id] ??= []).push(m.accuracy);
-  });
-  const filasEst = Object.entries(porEstacion)
-    .map(([station_id, v]) => ({ station_id, accuracy: v.reduce((a, b) => a + b, 0) / v.length }))
-    .sort((a, b) => a.accuracy - b.accuracy);
-  document.getElementById("estaciones").innerHTML = barrasEstaciones(filasEst) +
-    tablaHTML(["Estación", "Accuracy medio"], filasEst.map(f => [esc(f.station_id), f.accuracy.toFixed(2)]));
-
-  /* Señales */
-  document.getElementById("senales").innerHTML = senales.length
-    ? senales.map(s => `<div class="senal">
-        <span class="tipo" style="color:${css(COLOR_SENAL[s.signal_type] ?? "--muted")}">
-          ${NOMBRE_SENAL[s.signal_type] ?? esc(s.signal_type)}</span>
-        <span><span style="color:var(--ink)">${esc(s.description)}</span><br>
-          <span style="color:var(--muted);font-size:0.8rem">${new Date(s.detected_at).toLocaleString("es-CO")} · ${esc(s.action_taken ?? "")}</span></span>
-      </div>`).join("")
-    : vacio("Ninguna señal activa. El monitoreo corre después de cada recolección.");
-
-  /* Operación */
-  document.getElementById("operacion").innerHTML = corridas.length
-    ? `<table><thead><tr><th>Cuándo</th><th>Estado</th><th>Filas</th></tr></thead><tbody>
-       ${corridas.map(c => {
-         const color = c.status === "failed" ? "--critical" : c.status === "success" ? "--good" : "--muted";
-         return `<tr><td>${new Date(c.started_at).toLocaleString("es-CO")}</td>
-           <td class="dato"><span class="estado"><span class="punto" style="background:${css(color)}"></span>${esc(c.status)}</span></td>
-           <td class="dato">${c.rows_ingested}</td></tr>`;
-       }).join("")}</tbody></table>`
-    : vacio("Sin ejecuciones registradas.");
-
-  /* Modelos */
-  document.getElementById("modelos").innerHTML = `<table>
-    <thead><tr><th>Versión</th><th>Estado</th><th>Accuracy validación</th><th>Creado</th></tr></thead>
-    <tbody>${modelos.map(m => `<tr>
-      <td class="dato">${esc(m.version_id)}</td>
-      <td><span class="estado"><span class="punto" style="background:${css(m.status === "champion" ? "--good" : "--muted")}"></span>${esc(m.status)}</span></td>
-      <td class="dato">${m.validation_metric.toFixed(2)}</td>
-      <td>${new Date(m.created_at).toLocaleDateString("es-CO")}</td></tr>`).join("")}</tbody></table>`;
+/* ---------- gráficos ---------- */
+function chart(el,cfg){
+ const pts=cfg.pts;if(!pts.length){el.innerHTML='<div class="empty">No hay datos para estos filtros.</div>';return}
+ const W=Math.max(260,el.clientWidth||600),H=cfg.h||(W<520?220:280),L=cfg.left||36,R=10,T=12,B=26,n=pts.length,bars=cfg.type==="bars";
+ const vals=pts.map(p=>p.v);let min=cfg.min??Math.min(...vals),max=cfg.max??Math.max(...vals);
+ if(min===max){min-=1;max+=1}
+ const x=i=>bars?L+(i+.5)*(W-L-R)/n:L+(n===1?(W-L-R)/2:i*(W-L-R)/(n-1)),y=v=>T+(max-v)*(H-T-B)/(max-min);
+ const ticks=Array.from({length:5},(_,i)=>min+i*(max-min)/4);
+ let s='<svg class="chart" width="'+W+'" height="'+H+'" viewBox="0 0 '+W+" "+H+'" role="img" aria-label="'+esc(cfg.aria)+'">';
+ s+=ticks.map(v=>'<line x1="'+L+'" x2="'+(W-R)+'" y1="'+y(v)+'" y2="'+y(v)+'" stroke="'+css("--line")+'"/><text class="axis" x="'+(L-6)+'" y="'+(y(v)+4)+'" text-anchor="end">'+esc(cfg.tick(v))+"</text>").join("");
+ (cfg.lines||[]).forEach(l=>{if(l.v>min&&l.v<max)s+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+y(l.v)+'" y2="'+y(l.v)+'" stroke="'+css(l.c)+'" stroke-dasharray="5 4" opacity=".8"/><text class="axis" x="'+(W-R-2)+'" y="'+(y(l.v)-3)+'" text-anchor="end" fill="'+css(l.c)+'">'+esc(l.t)+"</text>"});
+ if(bars){const bw=Math.max(2,Math.min(22,(W-L-R)/n*.7));s+=pts.map((p,i)=>'<rect x="'+(x(i)-bw/2)+'" y="'+Math.min(y(p.v),y(0))+'" width="'+bw+'" height="'+Math.max(1,Math.abs(y(p.v)-y(0)))+'" rx="2" fill="'+css(cfg.color(p))+'" opacity=".9"/>').join("")}
+ else{const path=pts.map((p,i)=>x(i)+","+y(p.v)).join(" ");s+='<defs><linearGradient id="ga" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="'+css("--green")+'" stop-opacity=".25"/><stop offset="1" stop-color="'+css("--green")+'" stop-opacity="0"/></linearGradient></defs><polygon points="'+x(0)+","+(H-B)+" "+path+" "+x(n-1)+","+(H-B)+'" fill="url(#ga)"/><polyline points="'+path+'" fill="none" stroke="'+css("--green")+'" stroke-width="2.5" stroke-linejoin="round"/>';
+  if(n<=60)s+=pts.map((p,i)=>'<circle cx="'+x(i)+'" cy="'+y(p.v)+'" r="3.2" fill="'+css(cfg.color(p))+'" stroke="'+css("--card")+'" stroke-width="1.5"/>').join("")}
+ if(bars)s+='<line x1="'+L+'" x2="'+(W-R)+'" y1="'+y(0)+'" y2="'+y(0)+'" stroke="'+css("--muted")+'"/>';
+ (cfg.marks||[]).forEach(m=>{s+='<line x1="'+x(m.i)+'" x2="'+x(m.i)+'" y1="'+T+'" y2="'+(H-B)+'" stroke="'+css("--gold")+'" stroke-width="1.5" stroke-dasharray="3 3"/><text class="axis" x="'+x(m.i)+'" y="'+(T+9)+'" fill="'+css("--gold")+'" text-anchor="'+(m.i>n/2?"end":"start")+'">'+esc(m.t)+"</text>"});
+ [...new Set([0,Math.floor((n-1)/2),n-1])].forEach(i=>s+='<text class="axis" x="'+x(i)+'" y="'+(H-8)+'" text-anchor="'+(i===0?"start":i===n-1?"end":"middle")+'">'+esc(fshort(pts[i].t))+"</text>");
+ s+='<g id="hov-'+cfg.id+'" style="display:none"><line y1="'+T+'" y2="'+(H-B)+'" stroke="'+css("--ink2")+'" stroke-dasharray="2 3"/><circle r="5" fill="none" stroke="'+css("--ink")+'" stroke-width="2"/></g><rect id="brush-'+cfg.id+'" y="'+T+'" height="'+(H-T-B)+'" fill="'+css("--blue")+'" opacity=".2" style="display:none"/><rect class="hit" x="'+L+'" y="'+T+'" width="'+(W-L-R)+'" height="'+(H-T-B)+'" fill="transparent" style="cursor:crosshair"/></svg>';
+ el.innerHTML=s;
+ const svg=el.querySelector("svg"),hit=svg.querySelector(".hit"),hov=svg.querySelector("#hov-"+cfg.id),brush=svg.querySelector("#brush-"+cfg.id);
+ const idx=e=>{const r=svg.getBoundingClientRect(),px=(e.clientX-r.left)*(W/r.width);return Math.max(0,Math.min(n-1,bars?Math.floor((px-L)/((W-L-R)/n)):Math.round((px-L)/((W-L-R)/Math.max(1,n-1)))))};
+ let start=null;
+ const move=e=>{const i=idx(e);hov.style.display="";const ln=hov.firstChild,ci=hov.lastChild;ln.setAttribute("x1",x(i));ln.setAttribute("x2",x(i));ci.setAttribute("cx",x(i));ci.setAttribute("cy",y(pts[i].v));showTip(cfg.tip(pts[i]),e.clientX,e.clientY);
+  if(start!=null&&cfg.zoom){const a=Math.min(start,i),b=Math.max(start,i);brush.style.display="";brush.setAttribute("x",x(a));brush.setAttribute("width",Math.max(2,x(b)-x(a)))}};
+ hit.addEventListener("pointerdown",e=>{start=idx(e);if(e.pointerType!=="mouse")move(e)});
+ hit.addEventListener("pointermove",move);
+ hit.addEventListener("pointerleave",()=>{if(start==null){hov.style.display="none";hideTip()}});
+ window.addEventListener("pointerup",function up(e){window.removeEventListener("pointerup",up);if(start==null)return;const end=idx(e);const a=Math.min(start,end),b=Math.max(start,end);start=null;brush.style.display="none";if(cfg.zoom&&b-a>=2)cfg.zoom(a,b)});
+ hit.addEventListener("dblclick",()=>cfg.zoom&&cfg.zoom(null));
+}
+function marksFor(view){const out=[];state.data.models.forEach(m=>{const t=new Date(m.created_at);if(!view.length||t<new Date(view[0].t)||t>new Date(view.at(-1).t))return;let i=view.findIndex(v=>new Date(v.t)>=t);if(i>=0)out.push({i,t:"Nuevo modelo"})});return out}
+function setZoom(a,b){const w=windowed(series()),base=state.zoom?state.zoom[0]:0;if(a==null)state.zoom=null;else state.zoom=[base+a,base+b];renderAll()}
+function renderTrend(view,w){
+ $("#cyclecount").textContent=view.length+" ciclo"+(view.length===1?"":"s")+(view.length!==w.length?" (zoom)":"");
+ chart($("#trend"),{id:"t",aria:"Acierto por ciclo",pts:view.map(v=>({...v,v:v.acc})),min:Math.floor((Math.min(...view.map(v=>v.acc),GOOD)-4)/5)*5,max:100,tick:v=>fmt(v,0),h:0,
+  lines:[{v:GOOD,t:"Bien ≥"+GOOD,c:"--green"},{v:WARN,t:"Regular ≥"+WARN,c:"--orange"}],marks:marksFor(view),color:p=>"--"+({good:"green",warn:"orange",bad:"red"}[tone(p.acc)]),zoom:setZoom,
+  tip:p=>"<b>"+fmt(p.acc,1)+" · "+toneWord[tone(p.acc)]+"</b><span>"+esc(fdate(p.t))+"</span>"+(p.bias!=null?"<span>Sesgo "+(p.bias>0?"+":"")+fmt(p.bias,1)+" %</span>":"")+(p.n?"<span>"+p.n+" predicciones</span>":"")});
+ const f=[];if(state.station!=="all")f.push(esc(stName(state.station)));if(state.horizon!=="all")f.push(state.horizon+" min");
+ $("#trendLegend").innerHTML='<span><i style="background:var(--green)"></i>Acierto por ciclo</span><span><i style="background:var(--gold)"></i>Cambio de modelo</span>'+(f.length?"<span>Filtro: "+f.join(" · ")+"</span>":"<span>Todas las estaciones y horizontes (métrica oficial)</span>")+"<span>Doble clic = quitar zoom</span>";
+ const vals=view.map(v=>v.acc);
+ $("#insight").innerHTML=vals.length?'<div class="insight"><strong>Lectura rápida:</strong> promedio <strong>'+fmt(mean(vals),1)+"</strong>, variación típica ±"+fmt(sd(vals),1)+" pts; mejor "+fmt(Math.max(...vals),1)+", peor "+fmt(Math.min(...vals),1)+". Es desempeño real en producción, no una prueba de laboratorio.</div>":"";
+}
+function renderBias(view){
+ if(!state.preds){$("#bias").innerHTML='<div class="skeleton"></div>';return}
+ const pts=view.filter(v=>v.bias!=null).map(v=>({...v,v:v.bias}));
+ if(state.predsErr){$("#bias").innerHTML='<div class="error">No se pudo leer el detalle de predicciones.</div>';return}
+ const lim=Math.max(6,Math.ceil(Math.max(...pts.map(p=>Math.abs(p.v)),0)/2)*2);
+ chart($("#bias"),{id:"b",type:"bars",aria:"Sesgo por ciclo",pts,min:-lim,max:lim,tick:v=>(v>0?"+":"")+fmt(v,0)+"%",left:44,color:p=>Math.abs(p.v)<=BIAS_OK?"--green":"--orange",lines:[],zoom:null,
+  tip:p=>"<b>"+(p.v>0?"+":"")+fmt(p.v,1)+" %</b><span>"+(Math.abs(p.v)<=BIAS_OK?"Equilibrado":p.v>0?"Predijo de más":"Predijo de menos")+"</span><span>"+esc(fdate(p.t))+"</span>"});
+ const m=mean(pts.map(p=>p.v));$("#biasNote").innerHTML=m==null?"":'<div class="insight">Sesgo medio: <strong>'+(m>0?"+":"")+fmt(m,1)+" %</strong>. "+(Math.abs(m)<=BIAS_OK?"Sin tendencia clara a errar en una dirección.":m>0?"El modelo suele predecir más gente de la que llega.":"El modelo suele quedarse corto frente a la demanda real.")+"</div>";
 }
 
-cargar().catch(e => {
-  document.getElementById("tiles").innerHTML =
-    `<div class="tile"><div class="label">Error</div><div class="note">No se pudo leer Supabase: ${esc(e.message)}</div></div>`;
-});
+/* ---------- horizontes, estaciones, mapa ---------- */
+function viewPreds(view,ignoreStation,ignoreHorizon){const ids=new Set(view.map(v=>v.id));return(state.preds||[]).filter(r=>ids.has(r.c)&&(ignoreStation||state.station==="all"||r.s===state.station)&&(ignoreHorizon||state.horizon==="all"||r.h===Number(state.horizon)))}
+function renderHorizons(view){
+ const el=$("#horizons");if(!state.preds){el.innerHTML='<div class="skeleton"></div>';return}
+ const rows=viewPreds(view,false,true);if(!rows.length){el.innerHTML='<div class="empty">Sin predicciones evaluadas para este filtro.</div>';return}
+ const res=HORIZONS.map(h=>({h,...agg(rows.filter(r=>r.h===h))}));
+ el.innerHTML='<div class="hbars">'+res.map(r=>{const t=tone(r.acc);return '<div class="hb" data-tip="'+esc(r.h+" min · "+r.n+" predicciones · sesgo "+(r.bias>0?"+":"")+fmt(r.bias,1)+" %")+'"><div class="h">A '+r.h+' min</div><div class="v">'+fmt(r.acc,1)+'</div><div class="b"><i style="width:'+Math.max(2,r.acc||0)+"%;background:var(--"+({good:"green",warn:"orange",bad:"red",none:"muted"}[t])+')"></i></div><div class="note">'+toneWord[t]+"</div></div>"}).join("")+"</div>"+
+  '<div class="insight">'+(res[3].acc!=null&&res[0].acc!=null?"Perder "+fmt(res[0].acc-res[3].acc,1)+" pts entre 15 y 60 min es "+(res[0].acc-res[3].acc>8?"una caída marcada: conviene mejorar el largo plazo.":"esperable: mirar más lejos siempre cuesta."):"")+"</div>";
+}
+function stationRows(view){
+ const ids=new Set(view.map(v=>v.id)),g={};
+ if(state.horizon==="all"||!state.preds){state.data.metrics.filter(m=>m.station_id&&ids.has(m.cycle_id)&&m.accuracy!=null).forEach(m=>(g[m.station_id]??={a:[],b:null}).a.push(m.accuracy))}
+ else viewPreds(view,true,false).forEach(r=>(g[r.s]??={rows:[]}).rows?.push(r));
+ const bias={};if(state.preds)viewPreds(view,true,false).forEach(r=>(bias[r.s]??=[]).push(r));
+ return Object.entries(g).map(([id,v])=>({id,acc:v.a?mean(v.a):agg(v.rows).acc,bias:bias[id]?agg(bias[id]).bias:null}))}
+function renderStations(view){
+ let rows=stationRows(view);const sort=state.stationSort;
+ rows.sort((a,b)=>sort==="name"?stName(a.id).localeCompare(stName(b.id)):sort==="desc"?b.acc-a.acc:a.acc-b.acc);
+ const cor=Object.fromEntries(state.data.stations.map(s=>[s.station_id,s.corridor]));
+ $("#stations").innerHTML=rows.length?'<div class="bars">'+rows.map(r=>{const t=tone(r.acc);return '<button class="bar '+(state.station===r.id?"sel":"")+'" data-st="'+esc(r.id)+'" data-tip="'+esc(stName(r.id)+" · "+fmt(r.acc,1)+" ("+toneWord[t]+")"+(r.bias!=null?" · sesgo "+(r.bias>0?"+":"")+fmt(r.bias,1)+" %":""))+'"><div><strong>'+esc(stName(r.id))+"</strong><small>"+esc(cor[r.id]??"")+'</small></div><div class="track"><div class="fill '+t+'" style="width:'+Math.max(2,r.acc)+'%"></div></div><div class="num">'+fmt(r.acc,1)+"</div></button>"}).join("")+"</div>":'<div class="empty">Aún no hay detalle por estación para este periodo.</div>';
+ $$("#stations [data-st]").forEach(b=>b.onclick=()=>{state.station=state.station===b.dataset.st?"all":b.dataset.st;$("#fStation").value=state.station;state.zoom=null;renderAll()});
+}
+function renderHeat(view){
+ const el=$("#heat");if(!state.preds){el.innerHTML='<div class="skeleton"></div>';return}
+ const rows=viewPreds(view,true,true);if(!rows.length){el.innerHTML='<div class="empty">Sin predicciones evaluadas.</div>';return}
+ const ids=[...new Set(rows.map(r=>r.s))].sort((a,b)=>stName(a).localeCompare(stName(b)));
+ el.innerHTML='<table class="heat"><thead><tr><th>Estación</th>'+HORIZONS.map(h=>"<th style=\"text-align:center\">"+h+" min</th>").join("")+'<th style="text-align:center">Sesgo</th></tr></thead><tbody>'+ids.map(id=>{const mine=rows.filter(r=>r.s===id),tb=agg(mine).bias;return '<tr data-st="'+esc(id)+'" class="'+(state.station===id?"sel":"")+'"><td class="p">'+esc(stName(id))+"</td>"+HORIZONS.map(h=>{const g=agg(mine.filter(r=>r.h===h));return '<td class="c '+tone(g.acc)+'" data-tip="'+esc(stName(id)+" · "+h+" min · "+g.n+" predicciones")+'">'+fmt(g.acc,0)+"</td>"}).join("")+'<td class="c '+(tb==null?"none":Math.abs(tb)<=BIAS_OK?"good":"warn")+'">'+(tb==null?"—":(tb>0?"+":"")+fmt(tb,0)+"%")+"</td></tr>"}).join("")+"</tbody></table>";
+ $$("#heat tr[data-st]").forEach(tr=>tr.onclick=()=>{state.station=state.station===tr.dataset.st?"all":tr.dataset.st;$("#fStation").value=state.station;state.zoom=null;renderAll()});
+}
+
+/* ---------- drift ---------- */
+const SIG={performance:["Rendimiento","↘","--red","--redsoft","El acierto bajó respecto a lo normal."],data:["Datos","≈","--orange","--orangesoft","Los datos de entrada cambiaron."],operational:["Operación","!","--red","--redsoft","Algo del proceso automático falló o se retrasó."],station:["Estación","◆","--orange","--orangesoft","Una estación en particular rinde peor."]};
+function renderSignals(){
+ const all=state.data.signals,counts={};all.forEach(s=>counts[s.signal_type]=(counts[s.signal_type]||0)+1);
+ $("#chips").innerHTML=[["all","Todas ("+all.length+")"],...Object.keys(SIG).filter(k=>counts[k]).map(k=>[k,SIG[k][0]+" ("+counts[k]+")"])].map(c=>'<button class="chip '+(state.signal===c[0]?"active":"")+'" data-sig="'+c[0]+'">'+c[1]+"</button>").join("");
+ $$("#chips [data-sig]").forEach(b=>b.onclick=()=>{state.signal=b.dataset.sig;renderSignals()});
+ const rows=state.signal==="all"?all:all.filter(s=>s.signal_type===state.signal);
+ $("#signals").innerHTML=rows.length?rows.slice(0,8).map(s=>{const t=SIG[s.signal_type]??[s.signal_type,"·","--muted","--soft",""],has=s.metric_value!=null&&s.threshold_value>0,pct=has?Math.min(100,s.metric_value/Math.max(s.metric_value,s.threshold_value)*100):0,tp=has?Math.min(100,s.threshold_value/Math.max(s.metric_value,s.threshold_value)*100):0;
+  return '<article class="alert" style="--ac:var('+t[2]+");--af:var("+t[3]+')"><div class="aicon">'+t[1]+"</div><div><strong>"+t[0]+"</strong><p>"+esc(s.description)+"</p>"+(has?'<div class="gauge" data-tip="Valor '+fmt(s.metric_value,1)+" · umbral "+fmt(s.threshold_value,1)+'"><i style="width:'+pct+'%"></i><u style="left:'+tp+'%"></u></div><small>Valor '+fmt(s.metric_value,1)+" frente a umbral "+fmt(s.threshold_value,1)+" · </small>":"")+"<small>"+esc(fdate(s.detected_at))+" · "+esc(s.action_taken??"Sin decisión registrada")+"</small></div></article>"}).join("")+(rows.length>8?'<small style="color:var(--muted)">Mostrando las 8 más recientes de '+rows.length+".</small>":""):'<div class="empty">No hay señales para este filtro. Buena noticia.</div>';
+}
+
+/* ---------- salud ---------- */
+function renderHealth(){
+ const runs=[...state.data.runs].reverse(),failed=runs.filter(r=>r.status==="failed").length,ok=runs.filter(r=>r.status==="success").length,idle=runs.filter(r=>r.status==="no_new_data").length;
+ const dur=runs.filter(r=>r.finished_at).map(r=>(new Date(r.finished_at)-new Date(r.started_at))/1000),last=runs.at(-1),lastOk=[...runs].reverse().find(r=>r.status!=="failed");
+ const b=$("#healthbadge");b.className="badge "+(failed?(last?.status==="failed"?"bad":"warn"):"good");b.textContent=failed?failed+" fallo"+(failed>1?"s":"")+" reciente"+(failed>1?"s":""):"Sin fallos";
+ const lab={success:"Correcta",failed:"Falló",no_new_data:"Sin datos nuevos"};
+ $("#health").innerHTML=runs.length?'<div class="strip">'+runs.map(r=>'<div class="sb '+r.status+'" style="height:'+(r.status==="success"?Math.max(25,Math.min(100,r.rows_ingested/28)):r.status==="failed"?100:18)+'%" data-tip="'+esc(fdate(r.started_at)+" · "+(lab[r.status]??r.status)+" · "+r.rows_ingested+" filas"+(r.error_message?" · "+r.error_message.slice(0,80):""))+'"></div>').join("")+'</div><div class="mini3"><div class="mini"><span>Correctas</span><strong>'+ok+"/"+runs.length+'</strong></div><div class="mini"><span>Duración media</span><strong>'+fmt(mean(dur)??0,1)+' s</strong></div><div class="mini"><span>Última ejecución</span><strong>'+(last?relFrom(last.started_at).replace("hace ","").replace("en ","")+" atrás":"—")+"</strong></div></div>"+
+  '<div class="insight"><strong>Diagnóstico:</strong> '+(last?.status==="failed"?"la última ejecución falló; los modelos podrían predecir con datos viejos hasta que se recupere.":failed?"hubo fallos aislados, pero la última ejecución fue "+(lab[last.status]??"correcta").toLowerCase()+(lastOk?" (último éxito "+relFrom(lastOk.started_at)+")":"")+".":"el recolector opera sin fallos en las últimas ejecuciones.")+(idle?" "+idle+" veces no había datos nuevos (normal).":"")+"</div>":'<div class="empty">No hay ejecuciones registradas.</div>';
+}
+
+/* ---------- modelos ---------- */
+const modelName=id=>String(id??"").split("-2026")[0].replaceAll("_"," ");
+function renderModels(){
+ const models=state.data.models;if(!models.length){$("#models").innerHTML='<div class="empty">No hay versiones registradas.</div>';return}
+ const official=new Set(state.data.cycles.filter(c=>c.cycle_id.startsWith("cyc_official")).map(c=>c.cycle_id));
+ const real={};if(state.preds){const g={};state.preds.filter(r=>official.has(r.c)).forEach(r=>(g[r.m]??=[]).push(r));for(const k in g)real[k]={...agg(g[k]),cycles:new Set(g[k].map(r=>r.c)).size}}
+ $("#models").innerHTML='<div class="tablewrap"><table><thead><tr><th>Versión</th><th>Rol</th><th>Validación</th><th>Real (oficial)</th><th>Brecha</th><th>Ciclos</th><th>Registrado</th></tr></thead><tbody>'+models.map(m=>{const r=real[m.version_id],gap=r?r.acc-m.validation_metric:null;return '<tr><td class="p" title="'+esc(m.version_id)+'">'+esc(modelName(m.version_id))+'</td><td><span class="badge '+(m.status==="champion"?"good":"")+'">'+(m.status==="champion"?"Vigente":m.status==="candidate"?"Candidato":"Histórico")+'</span></td><td class="p">'+fmt(m.validation_metric,1)+"</td><td class=\"p\">"+(r?fmt(r.acc,1):(state.preds?"—":"…"))+"</td><td>"+(gap==null?"—":'<span class="badge '+(gap>=-3?"good":gap>=-8?"warn":"bad")+'">'+(gap>=0?"+":"")+fmt(gap,1)+" pts</span>")+"</td><td>"+(r?r.cycles:"—")+"</td><td>"+esc(new Date(m.created_at).toLocaleDateString("es-CO"))+"</td></tr>"}).join("")+'</tbody></table></div><div class="insight">Una brecha grande y negativa indica que el modelo rinde en producción bastante menos que en laboratorio (posible sobreajuste o cambio en los datos). La comparación con el leaderboard de otros equipos no está en la base pública; se consulta con la API key privada fuera del navegador.</div>';
+}
+
+/* ---------- eventos ---------- */
+function seg(sel,key,conv){$$(sel+" button").forEach(b=>b.addEventListener("click",()=>{$$(sel+" button").forEach(x=>x.classList.remove("active"));b.classList.add("active");state[key]=conv(b.dataset.v);state.zoom=null;if(state.data)renderAll()}))}
+seg("#fScope","scope",v=>v);seg("#fWindow","window",Number);
+$("#fStation").addEventListener("change",e=>{state.station=e.target.value;state.zoom=null;renderAll()});
+$("#fHorizon").addEventListener("change",e=>{state.horizon=e.target.value;state.zoom=null;renderAll()});
+$("#stationsort").addEventListener("change",e=>{state.stationSort=e.target.value;if(state.data)renderAll()});
+$("#resetZoom").addEventListener("click",()=>{state.zoom=null;renderAll()});
+$("#refresh").addEventListener("click",load);
+$("#glGood").textContent=GOOD;$("#glWarn").textContent=WARN;
+function themeLabel(){$("#theme").textContent=document.documentElement.dataset.theme==="dark"?"☀ Claro":"☾ Oscuro"}
+$("#theme").addEventListener("click",()=>{const t=document.documentElement.dataset.theme==="dark"?"light":"dark";document.documentElement.dataset.theme=t;try{localStorage.setItem("pulso-theme",t)}catch(e){}themeLabel();if(state.data)renderAll()});
+themeLabel();
+let rz;addEventListener("resize",()=>{clearTimeout(rz);rz=setTimeout(()=>state.data&&renderAll(),150)});
+load();
 </script>
 </body>
 </html>
