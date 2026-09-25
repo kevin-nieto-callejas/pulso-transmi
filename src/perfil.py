@@ -51,6 +51,21 @@ LIMITES_FACTOR = (0.30, 1.6)
 DIAS_DE_HISTORIA = 28      # con vida media 14 d, mas atras pesa <0.25
 MEZCLA_PERFIL = 0.4        # peso del perfil frente al champion
 
+# Deteccion de cierre. El generador programa un `closure`: una estacion cae a
+# ~40% de su demanda. El champion sigue prediciendo el regimen normal (lags de
+# 1 dia y 1 semana, slot_mean) y con el 60% de la mezcla arrastra a la
+# estacion cerrada hasta ~45 puntos de accuracy. Cuando el nivel de una
+# estacion se desploma se le quita la voz al champion y manda el perfil solo.
+# Sobre 20 escenarios simulados (4 estaciones, 2 horas de inicio, transicion
+# corta y larga) sube las 12 estaciones ~3.0 puntos y la estacion cerrada de
+# ~45 a ~82; en regimen normal el resultado es identico (87.89 / 86.05, se
+# dispara 12 veces en 5520 predicciones). Exigir DOS ventanas evita disparar
+# con un valle de una sola hora.
+UMBRAL_CIERRE_CORTO = 0.70  # factor de nivel de la ultima hora (4 pasos)
+UMBRAL_CIERRE_LARGO = 0.80  # factor de las ultimas 2 horas (8 pasos)
+VENTANA_CIERRE_LARGA = 8
+PESO_PERFIL_CIERRE = 1.0
+
 
 def _tipo_de_dia(fechas: np.ndarray) -> np.ndarray:
     """0 = habil, 1 = sabado, 2 = domingo. Sabado y domingo tienen perfiles
@@ -123,21 +138,35 @@ class PerfilAdaptativo:
         instante = a_hora_local(pd.Series([instante])).iloc[0]
         return int(round((instante - self._origen) / pd.Timedelta(minutes=15)))
 
-    def factor_de_nivel(self, estacion: str, ancla_at: pd.Timestamp) -> float:
+    def factor_de_nivel(self, estacion: str, ancla_at: pd.Timestamp, ventana: int | None = None) -> float:
         """Cuanto se desvia la ultima hora real respecto a lo que el perfil
-        esperaba. 1.0 = la estacion va justo en su perfil."""
+        esperaba. 1.0 = la estacion va justo en su perfil. `ventana` (en pasos
+        de 15 min) permite mirar mas atras; por defecto la ventana del perfil."""
+        ventana = self._ventana_nivel if ventana is None else ventana
         serie, perfil = self._serie.get(str(estacion)), self._perfil.get(str(estacion))
         if serie is None:
             return 1.0
         fin = self._paso(ancla_at) + 1
-        inicio = max(0, fin - self._ventana_nivel)
+        inicio = max(0, fin - ventana)
         reales, esperados = serie[inicio:fin], perfil[inicio:fin]
         validos = ~np.isnan(reales) & ~np.isnan(esperados)
         # Con menos de media ventana, o con un perfil que suma cero, el factor
         # seria ruido amplificado: mejor no corregir nada.
-        if validos.sum() < max(2, self._ventana_nivel // 2) or esperados[validos].sum() <= 0:
+        if validos.sum() < max(2, ventana // 2) or esperados[validos].sum() <= 0:
             return 1.0
         return float(np.clip(reales[validos].sum() / esperados[validos].sum(), *LIMITES_FACTOR))
+
+    def peso_de_mezcla(self, estacion: str, ancla_at: pd.Timestamp) -> float:
+        """Peso del perfil frente al champion para esta estacion y este ancla.
+
+        Normalmente MEZCLA_PERFIL. Si el nivel se desploma en las dos ventanas
+        (un cierre), el champion deja de opinar y manda el perfil escalado.
+        """
+        corto = self.factor_de_nivel(estacion, ancla_at)
+        largo = self.factor_de_nivel(estacion, ancla_at, VENTANA_CIERRE_LARGA)
+        if corto < UMBRAL_CIERRE_CORTO and largo < UMBRAL_CIERRE_LARGO:
+            return PESO_PERFIL_CIERRE
+        return MEZCLA_PERFIL
 
     def predecir(self, estacion: str, target_at: pd.Timestamp, ancla_at: pd.Timestamp) -> float | None:
         """Demanda esperada en `target_at`, o None si no hay perfil para esa

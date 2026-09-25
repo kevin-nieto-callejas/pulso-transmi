@@ -40,7 +40,7 @@ from features import (  # noqa: E402
     aplicar_features_de_target,
     build_feature_frame,
 )
-from perfil import DIAS_DE_HISTORIA, PerfilAdaptativo, mezclar  # noqa: E402
+from perfil import DIAS_DE_HISTORIA, MEZCLA_PERFIL, PerfilAdaptativo, mezclar  # noqa: E402
 from predict import get_champion, load_model_from_storage  # noqa: E402
 
 API_URL = os.environ.get("PULSO_API_URL", "https://pulso-transmi.72-60-245-2.sslip.io").rstrip("/")
@@ -239,12 +239,14 @@ def build_batch_predictions(
         # franja, `mezclar` devuelve el champion intacto.
         if perfil is not None:
             valor_perfil = perfil.predecir(station_id, target_at, anchor_at)
+            peso = perfil.peso_de_mezcla(station_id, anchor_at)
             if valor_perfil is not None:
+                aviso = "  CIERRE: manda el perfil" if peso > MEZCLA_PERFIL else ""
                 print(
                     f"  {station_id} +{horizon_minutes:2d}min: champion={value:8.1f}  "
-                    f"perfil={valor_perfil:8.1f}  ->  {mezclar(value, valor_perfil):8.1f}"
+                    f"perfil={valor_perfil:8.1f}  ->  {mezclar(value, valor_perfil, peso):8.1f}{aviso}"
                 )
-            value = mezclar(value, valor_perfil)
+            value = mezclar(value, valor_perfil, peso)
 
         value = max(0.0, min(value, 100000.0))
         predictions.append({

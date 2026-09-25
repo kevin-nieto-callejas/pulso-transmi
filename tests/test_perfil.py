@@ -12,7 +12,13 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from perfil import LIMITES_FACTOR, PerfilAdaptativo, mezclar  # noqa: E402
+from perfil import (  # noqa: E402
+    LIMITES_FACTOR,
+    MEZCLA_PERFIL,
+    PESO_PERFIL_CIERRE,
+    PerfilAdaptativo,
+    mezclar,
+)
 
 ZONA = "America/Bogota"
 
@@ -113,3 +119,47 @@ def test_el_piso_permite_seguir_un_cierre():
     obs = _observaciones(factor_ultimo_dia=0.40)
     factor = PerfilAdaptativo(obs).factor_de_nivel("01000", pd.Timestamp("2026-08-21 08:00", tz=ZONA))
     assert factor == pytest.approx(0.40, rel=0.05)
+
+
+def _observaciones_con_cierre(dias: int = 21, factor_cierre: float = 0.40, horas_de_cierre: int = 6) -> pd.DataFrame:
+    """Como `_observaciones`, pero la estacion cae a `factor_cierre` durante las
+    ultimas `horas_de_cierre` horas de la serie (un closure ya en marcha)."""
+    obs = _observaciones(dias=dias)
+    corte = obs["observed_at"].max() - pd.Timedelta(hours=horas_de_cierre)
+    obs.loc[obs["observed_at"] > corte, "demand"] *= factor_cierre
+    return obs
+
+
+def test_un_cierre_le_quita_la_voz_al_champion():
+    """Con el nivel desplomado en las dos ventanas, manda el perfil: el
+    champion sigue creyendo en el regimen normal y arrastraria la mezcla."""
+    obs = _observaciones_con_cierre()
+    perfil = PerfilAdaptativo(obs)
+    ancla = obs["observed_at"].max()
+    assert perfil.peso_de_mezcla("01000", ancla) == PESO_PERFIL_CIERRE
+
+
+def test_en_regimen_normal_no_se_dispara_el_detector():
+    """Un falso positivo apagaria al champion sin motivo, asi que el detector
+    tiene que callar cuando la estacion va en su perfil."""
+    obs = _observaciones()
+    perfil = PerfilAdaptativo(obs)
+    for ancla in obs["observed_at"].iloc[-96::8]:
+        assert perfil.peso_de_mezcla("01000", ancla) == MEZCLA_PERFIL
+
+
+def test_un_valle_de_una_sola_hora_no_cuenta_como_cierre():
+    """Exigir las dos ventanas evita disparar con una caida breve: en una
+    hora el factor corto puede bajar de 0.7 pero el largo no llega a 0.8."""
+    obs = _observaciones()
+    corte = obs["observed_at"].max() - pd.Timedelta(hours=1)
+    obs.loc[obs["observed_at"] > corte, "demand"] *= 0.30
+    perfil = PerfilAdaptativo(obs)
+    # solo la ultima hora cae; el tramo previo (2 h) va en su perfil
+    assert perfil.factor_de_nivel("01000", obs["observed_at"].max()) < 0.70
+    assert perfil.peso_de_mezcla("01000", obs["observed_at"].max()) == MEZCLA_PERFIL
+
+
+def test_una_estacion_desconocida_no_dispara_el_detector():
+    perfil = PerfilAdaptativo(_observaciones())
+    assert perfil.peso_de_mezcla("99999", pd.Timestamp("2026-08-21 08:00", tz=ZONA)) == MEZCLA_PERFIL
