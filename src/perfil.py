@@ -213,9 +213,20 @@ class PerfilAdaptativo:
 
         Normalmente MEZCLA_PERFIL. Si el nivel se desploma en las dos ventanas
         (un cierre), el champion deja de opinar y manda el perfil escalado.
+
+        El nivel se mide contra el perfil YA desplazado por el desfase estimado.
+        Sin eso, una estacion con el pico corrido (peak_shift) parece hundirse
+        cada vez que la demanda sube: la curva real llega tarde, el perfil sin
+        mover ya esta arriba y el cociente cae. Asi confundio la rampa de la
+        manana de 05000 con un cierre y le quito la voz al champion cuando el
+        champion iba bien.
         """
-        corto = self.factor_de_nivel(estacion, ancla_at)
-        largo = self.factor_de_nivel(estacion, ancla_at, VENTANA_CIERRE_LARGA)
+        try:
+            desfase = self.desfase(estacion, ancla_at)
+        except Exception:
+            desfase = 0
+        corto = self.factor_de_nivel(estacion, ancla_at, desfase=desfase)
+        largo = self.factor_de_nivel(estacion, ancla_at, VENTANA_CIERRE_LARGA, desfase)
         if corto < UMBRAL_CIERRE_CORTO and largo < UMBRAL_CIERRE_LARGO:
             return PESO_PERFIL_CIERRE
         return MEZCLA_PERFIL

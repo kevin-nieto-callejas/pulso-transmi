@@ -165,13 +165,15 @@ def test_una_estacion_desconocida_no_dispara_el_detector():
     assert perfil.peso_de_mezcla("99999", pd.Timestamp("2026-08-21 08:00", tz=ZONA)) == MEZCLA_PERFIL
 
 
-def _observaciones_con_pico_corrido(dias: int = 21, pasos: int = 3) -> pd.DataFrame:
-    """Como `_observaciones`, pero el ULTIMO dia el pico llega `pasos` pasos de
-    15 min mas tarde (un peak_shift ya en marcha)."""
+def _observaciones_con_pico_corrido(dias: int = 21, pasos: int = 3, dias_corridos: int = 2) -> pd.DataFrame:
+    """Como `_observaciones`, pero en los ULTIMOS `dias_corridos` dias el pico
+    llega `pasos` pasos de 15 min mas tarde (un peak_shift ya establecido: en
+    la realidad la transicion dura 24 h y el desfase lleva un dia o mas)."""
     obs = _observaciones(dias=dias).reset_index(drop=True)
-    ultimo = obs["observed_at"].dt.normalize() == obs["observed_at"].dt.normalize().max()
+    dia = obs["observed_at"].dt.normalize()
+    corrido = (dia > dia.max() - pd.Timedelta(days=dias_corridos)).to_numpy()
     demanda = obs["demand"].to_numpy().copy()
-    idx = np.flatnonzero(ultimo.to_numpy())
+    idx = np.flatnonzero(corrido)
     demanda[idx] = obs["demand"].to_numpy()[idx - pasos]
     obs["demand"] = demanda
     return obs
@@ -213,3 +215,15 @@ def test_sin_historia_suficiente_el_desfase_es_cero():
     perfil = PerfilAdaptativo(obs)
     assert perfil.desfase("01000", obs["observed_at"].max()) == 0
     assert perfil.desfase("99999", obs["observed_at"].max()) == 0
+
+
+def test_una_rampa_retrasada_no_se_confunde_con_un_cierre():
+    """Regresion de un falso positivo real: con el pico corrido, la demanda sube
+    tarde y el perfil sin mover ya esta arriba, asi que el cociente cae. Con el
+    desfase corregido el detector debe callar y dejar la mezcla normal."""
+    obs = _observaciones_con_pico_corrido(pasos=3)
+    perfil = PerfilAdaptativo(obs)
+    # justo cuando la curva sube: el perfil sin mover adelanta a la demanda real
+    for hora in range(4, 12):
+        ancla = obs["observed_at"].max().normalize() + pd.Timedelta(hours=hora)
+        assert perfil.peso_de_mezcla("01000", ancla) == MEZCLA_PERFIL, f"falsa alarma a las {hora}:00"
