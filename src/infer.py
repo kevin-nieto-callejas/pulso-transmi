@@ -40,6 +40,7 @@ from features import (  # noqa: E402
     aplicar_features_de_target,
     build_feature_frame,
 )
+from perfil import DIAS_DE_HISTORIA, PerfilAdaptativo, mezclar  # noqa: E402
 from predict import get_champion, load_model_from_storage  # noqa: E402
 
 API_URL = os.environ.get("PULSO_API_URL", "https://pulso-transmi.72-60-245-2.sslip.io").rstrip("/")
@@ -110,12 +111,18 @@ def fetch_all_rows(client: httpx.Client, url: str, headers: dict, params: dict) 
         start += PAGE_SIZE
 
 
-def build_anchor_features(client: httpx.Client, supabase_url: str, data_cutoff: pd.Timestamp) -> pd.DataFrame:
+def build_anchor_features(client: httpx.Client, supabase_url: str, data_cutoff: pd.Timestamp) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Reconstruye, por estacion, la fila de features tal como se veian en
-    `data_cutoff` (usa hasta 8 dias hacia atras para cubrir lag_672 y
-    roll_mean_96/roll_std_96, que necesitan una semana completa de historia).
+    `data_cutoff`.
+
+    Devuelve tambien las observaciones crudas: el champion solo necesita 8
+    dias (lag_672 y roll_mean_96/roll_std_96 cubren una semana), pero el
+    perfil adaptativo promedia dias del mismo tipo con vida media de 14 dias
+    y se queda ciego con tan poca historia. Se pide la ventana larga una sola
+    vez y cada modelo toma lo que le sirve.
     """
-    window_start = (data_cutoff - pd.Timedelta(days=8)).isoformat()
+    window_start = (data_cutoff - pd.Timedelta(days=DIAS_DE_HISTORIA)).isoformat()
+    window_start_champion = (data_cutoff - pd.Timedelta(days=8)).isoformat()
     headers = supabase_headers()
 
     obs_rows = fetch_all_rows(
@@ -129,7 +136,7 @@ def build_anchor_features(client: httpx.Client, supabase_url: str, data_cutoff: 
     context_rows = fetch_all_rows(
         client, f"{supabase_url}/rest/v1/context_readings", headers,
         {
-            "observed_at": [f"gte.{window_start}", f"lte.{data_cutoff.isoformat()}"],
+            "observed_at": [f"gte.{window_start_champion}", f"lte.{data_cutoff.isoformat()}"],
             # rain_forecast/temperature_forecast son features del modelo: si no
             # se piden aqui, build_feature_frame no puede calcularlas y se
             # mandaban en 0. Pedir de menos en un `select` no falla, solo
@@ -150,14 +157,18 @@ def build_anchor_features(client: httpx.Client, supabase_url: str, data_cutoff: 
     context = pd.DataFrame(context_rows)
     context["observed_at"] = pd.to_datetime(context["observed_at"])
 
-    anchor_frame = build_feature_frame(observations, context)
+    # El champion se arma con su ventana de siempre: darle 28 dias cambiaria
+    # los roll_* respecto a como fue entrenado y validado.
+    recientes = observations[observations["observed_at"] >= pd.Timestamp(window_start_champion)]
+    anchor_frame = build_feature_frame(recientes, context)
     anchors = anchor_frame.sort_values("observed_at").groupby("station_id").tail(1).set_index("station_id")
     print(f"Ancla reconstruida para {len(anchors)} estaciones ({len(observations)} observaciones leidas).")
-    return anchors
+    return anchors, observations
 
 
 def build_batch_predictions(
     model, feature_columns: list[str], anchor_by_station: pd.DataFrame, targets: list[dict], data_cutoff: pd.Timestamp,
+    perfil: PerfilAdaptativo | None = None,
 ) -> list[dict]:
     """Arma las predicciones del batch. Cada target usa la MISMA fila ancla
     de su estacion (lo unico que cambia entre horizontes es `horizon_minutes`
@@ -219,6 +230,20 @@ def build_batch_predictions(
             row[col] = 0  # dummies de otras estaciones: 0 por definicion de one-hot
 
         value = float(model.predict(row[feature_columns])[0])
+
+        # Segunda opinion: el perfil adaptativo reacciona a un cambio de
+        # regimen en la hora siguiente, mientras el champion sigue creyendo
+        # en el regimen con el que se entreno. Si no tiene opinion para esta
+        # franja, `mezclar` devuelve el champion intacto.
+        if perfil is not None:
+            valor_perfil = perfil.predecir(station_id, target_at, anchor_at)
+            if valor_perfil is not None:
+                print(
+                    f"  {station_id} +{horizon_minutes:2d}min: champion={value:8.1f}  "
+                    f"perfil={valor_perfil:8.1f}  ->  {mezclar(value, valor_perfil):8.1f}"
+                )
+            value = mezclar(value, valor_perfil)
+
         value = max(0.0, min(value, 100000.0))
         predictions.append({
             "station_id": station_id,
@@ -373,8 +398,18 @@ def run_once(supabase_url: str) -> str:
         bundle = load_model_from_storage(champion["artifact_location"])
         model, feature_columns = bundle["model"], bundle["feature_columns"]
 
-        anchor_by_station = build_anchor_features(client, supabase_url, data_cutoff)
-        predictions = build_batch_predictions(model, feature_columns, anchor_by_station, targets, data_cutoff)
+        anchor_by_station, observaciones = build_anchor_features(client, supabase_url, data_cutoff)
+
+        # El perfil es una mejora, no un requisito: si falla por lo que sea,
+        # la entrega sale igual con el champion solo. Perder un ciclo cuesta
+        # mucho mas que entregarlo un punto peor.
+        try:
+            perfil = PerfilAdaptativo(observaciones)
+        except Exception as exc:
+            print(f"AVISO: perfil adaptativo no disponible ({type(exc).__name__}: {exc}). Se entrega con el champion solo.")
+            perfil = None
+
+        predictions = build_batch_predictions(model, feature_columns, anchor_by_station, targets, data_cutoff, perfil)
         print(f"Batch armado: {len(predictions)} predicciones (min={min(p['value'] for p in predictions):.1f}, "
               f"max={max(p['value'] for p in predictions):.1f})")
 

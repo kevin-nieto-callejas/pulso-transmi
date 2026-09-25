@@ -253,3 +253,56 @@ detector se anulaba solo.
 Los dos últimos los encontró la competencia misma: la API aceptó la entrega
 y solo el accuracy del leaderboard delató el problema. Es el argumento más
 fuerte para medir con datos reales cuanto antes.
+
+---
+
+## 25. Un modelo congelado no puede ganarle al drift (y un perfil sí)
+
+El champion se estancó en ~83 de accuracy justo cuando el generador aplicó
+`peak_shift` sobre cuatro estaciones (02300, 06111, 07107, 09122: el pico se
+corre 45 min y el nivel sube 18%). Pasaron de ~85 a ~63-70 y sobrepredecían
+entre 14% y 31%.
+
+Antes de aceptar la explicación se descartaron tres hipótesis, y vale la pena
+anotar **lo que no era**, porque cada una parecía razonable:
+
+| Hipótesis | Prueba | Resultado |
+|---|---|---|
+| El contexto (lluvia/temperatura) se cortó el 9-sep y llega como NaN | Predecir con contexto real, imputado por hora, último visto y cero | **83.6 en las cuatro**: el modelo casi no usa esas variables |
+| Falta reentrenar con datos recientes | Reentrenar hasta el 11-sep, sin pesos y con vida media 14 y 5 días | **82.2-82.7**: *peor* que el champion. Con 1.5 días post-drift se añade ruido, no señal |
+| Corregir el sesgo reciente por estación | Factor `real/predicho` de las últimas 6-48 h, con y sin encogimiento | **+0.3 a +0.7**: dentro del ruido |
+
+Lo que sí funcionó fue cambiar de familia. El nombre del modelo de un
+competidor que se recuperó rápido del drift (`adaptive-profile-hl14`, visible
+en el portal) apuntaba a un perfil adaptativo, y replicarlo lo confirmó:
+
+    predicción = perfil(estación, franja, tipo de día)  x  factor_de_nivel(última hora)
+
+El perfil es una media de la misma franja en días previos del mismo tipo con
+vida media de 14 días; el factor compara la última hora real contra lo que el
+perfil esperaba. **No se entrena nada**: el factor absorbe un cambio de nivel
+en la hora siguiente, no en el próximo reentrenamiento.
+
+Validado con origen rodante sobre 5 ventanas de un día (nunca sobre una sola,
+justamente para no confundir suerte con mejora):
+
+| Modelo | 7-sep | 8-sep | 9-sep | 10-sep | 11-sep (drift) | Media | Peor |
+|---|---|---|---|---|---|---|---|
+| Champion CatBoost | 90.92 | 91.35 | 85.27 | 85.37 | **83.41** | 87.27 | 83.41 |
+| Perfil solo (hl=14, L=4) | 87.07 | 87.87 | 86.42 | 86.24 | 85.53 | 86.62 | 85.53 |
+| **Mezcla 60/40** | 89.84 | 90.36 | 86.48 | 86.67 | **85.29** | **87.73** | **85.29** |
+
+La mezcla **cede ~1 punto en los días tranquilos y gana ~1.9 en el día con
+drift**. Se promovió por el peor caso, no por la media: la tabla se decide en
+ventanas de seis ciclos, así que un desplome de un día pesa más que una
+décima de promedio. El profesor ya anunció un segundo drift (`closure`: una
+estación cae al 40% y reparte a las vecinas), y ahí el perfil vuelve a ser
+quien reacciona primero.
+
+Dos detalles de la implementación que no son opcionales:
+
+- El factor de nivel se **recorta a [0.5, 1.6]**. Sin recorte, un hueco del
+  collector se convierte en un multiplicador absurdo.
+- Si el perfil no tiene opinión (estación nueva, franja sin historia) devuelve
+  `None` y la entrega sale con el champion solo. **Perder un ciclo cuesta
+  mucho más que entregarlo un punto peor.**
