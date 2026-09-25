@@ -163,3 +163,53 @@ def test_un_valle_de_una_sola_hora_no_cuenta_como_cierre():
 def test_una_estacion_desconocida_no_dispara_el_detector():
     perfil = PerfilAdaptativo(_observaciones())
     assert perfil.peso_de_mezcla("99999", pd.Timestamp("2026-08-21 08:00", tz=ZONA)) == MEZCLA_PERFIL
+
+
+def _observaciones_con_pico_corrido(dias: int = 21, pasos: int = 3) -> pd.DataFrame:
+    """Como `_observaciones`, pero el ULTIMO dia el pico llega `pasos` pasos de
+    15 min mas tarde (un peak_shift ya en marcha)."""
+    obs = _observaciones(dias=dias).reset_index(drop=True)
+    ultimo = obs["observed_at"].dt.normalize() == obs["observed_at"].dt.normalize().max()
+    demanda = obs["demand"].to_numpy().copy()
+    idx = np.flatnonzero(ultimo.to_numpy())
+    demanda[idx] = obs["demand"].to_numpy()[idx - pasos]
+    obs["demand"] = demanda
+    return obs
+
+
+def test_detecta_un_pico_corrido():
+    """El factor de NIVEL no arregla un desfase temporal: hay que detectarlo."""
+    obs = _observaciones_con_pico_corrido(pasos=3)
+    perfil = PerfilAdaptativo(obs)
+    assert perfil.desfase("01000", obs["observed_at"].max()) == 3
+
+
+def test_en_regimen_normal_el_desfase_es_cero():
+    """Un falso positivo movería el perfil sin motivo: tiene que ser 0 cuando la
+    curva ya coincide."""
+    obs = _observaciones()
+    perfil = PerfilAdaptativo(obs)
+    for ancla in obs["observed_at"].iloc[-96::12]:
+        assert perfil.desfase("01000", ancla) == 0
+
+
+def test_corregir_la_fase_acerca_la_prediccion():
+    """Con el pico corrido, predecir con el desfase estimado debe quedar mas
+    cerca de lo real que predecir con el perfil sin mover."""
+    obs = _observaciones_con_pico_corrido(pasos=3)
+    perfil = PerfilAdaptativo(obs)
+    ancla = obs["observed_at"].max() - pd.Timedelta(hours=8)
+    objetivo = ancla + pd.Timedelta(minutes=60)
+    real = obs[obs["observed_at"] == objetivo]["demand"].iloc[0]
+
+    con_fase = perfil.predecir("01000", objetivo, ancla)
+    sin_fase = perfil._perfil["01000"][perfil._paso(objetivo)] * perfil.factor_de_nivel("01000", ancla)
+    assert abs(con_fase - real) < abs(sin_fase - real)
+
+
+def test_sin_historia_suficiente_el_desfase_es_cero():
+    """Con pocos dias la ventana de 24 h no cabe: no se corrige nada."""
+    obs = _observaciones(dias=3)
+    perfil = PerfilAdaptativo(obs)
+    assert perfil.desfase("01000", obs["observed_at"].max()) == 0
+    assert perfil.desfase("99999", obs["observed_at"].max()) == 0

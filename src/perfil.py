@@ -66,6 +66,18 @@ UMBRAL_CIERRE_LARGO = 0.80  # factor de las ultimas 2 horas (8 pasos)
 VENTANA_CIERRE_LARGA = 8
 PESO_PERFIL_CIERRE = 1.0
 
+# Correccion de fase. El `peak_shift` del generador corre el centro del pico
+# diario (+45 min en el ejemplo del profesor) ademas de subir el nivel. El
+# perfil sigue anclado a la hora vieja y predice el pico donde ya no esta, y
+# ningun factor de NIVEL arregla un desfase temporal. Por estacion se estima
+# con las ultimas 24 h cuantos pasos de 15 min conviene desplazar el perfil.
+# Con la evidencia en la mano: en las 5 ventanas de validacion es inocuo (el
+# resultado es identico, porque casi siempre el desfase estimado es 0) y en
+# las horas con el drift activo sube las 12 estaciones ~1.2 puntos.
+DESFASES = range(-4, 5)      # de -1 h a +1 h, en pasos de 15 min
+VENTANA_FASE = 96            # las ultimas 24 h
+MEJORA_MINIMA_FASE = 0.10    # exige 10% menos de error para moverse de 0
+
 
 def _tipo_de_dia(fechas: np.ndarray) -> np.ndarray:
     """0 = habil, 1 = sabado, 2 = domingo. Sabado y domingo tienen perfiles
@@ -99,9 +111,14 @@ class PerfilAdaptativo:
         # indices enteros hace que "la misma franja de ayer" sea una resta.
         self._origen = obs["observed_at"].min().normalize()
         pasos = ((obs["observed_at"] - self._origen) / pd.Timedelta(minutes=15)).round().astype(int)
-        self._n_dias = int(pasos.max()) // PASOS_POR_DIA + 1
-        if self._n_dias < 3:
-            raise ValueError(f"El perfil necesita al menos 3 dias de historia y hay {self._n_dias}")
+        dias_con_datos = int(pasos.max()) // PASOS_POR_DIA + 1
+        if dias_con_datos < 3:
+            raise ValueError(f"El perfil necesita al menos 3 dias de historia y hay {dias_con_datos}")
+        # Un dia de mas, sin observaciones: el perfil tambien se calcula para
+        # "manana". Sin el, un target que cruza la medianoche caia fuera del
+        # arreglo y el perfil se quedaba sin opinion justo en esa franja, y la
+        # correccion de fase no podia mirar mas alla del ultimo paso del dia.
+        self._n_dias = dias_con_datos + 1
 
         self._ventana_nivel = ventana_nivel
         fechas = np.array([self._origen + pd.Timedelta(days=d) for d in range(self._n_dias)])
@@ -138,23 +155,58 @@ class PerfilAdaptativo:
         instante = a_hora_local(pd.Series([instante])).iloc[0]
         return int(round((instante - self._origen) / pd.Timedelta(minutes=15)))
 
-    def factor_de_nivel(self, estacion: str, ancla_at: pd.Timestamp, ventana: int | None = None) -> float:
+    def factor_de_nivel(
+        self, estacion: str, ancla_at: pd.Timestamp, ventana: int | None = None, desfase: int = 0,
+    ) -> float:
         """Cuanto se desvia la ultima hora real respecto a lo que el perfil
         esperaba. 1.0 = la estacion va justo en su perfil. `ventana` (en pasos
-        de 15 min) permite mirar mas atras; por defecto la ventana del perfil."""
+        de 15 min) permite mirar mas atras; por defecto la ventana del perfil.
+        `desfase` compara contra el perfil corrido esa cantidad de pasos."""
         ventana = self._ventana_nivel if ventana is None else ventana
         serie, perfil = self._serie.get(str(estacion)), self._perfil.get(str(estacion))
         if serie is None:
             return 1.0
         fin = self._paso(ancla_at) + 1
         inicio = max(0, fin - ventana)
-        reales, esperados = serie[inicio:fin], perfil[inicio:fin]
+        if inicio - desfase < 0 or fin - desfase > perfil.size:
+            return 1.0
+        reales, esperados = serie[inicio:fin], perfil[inicio - desfase:fin - desfase]
         validos = ~np.isnan(reales) & ~np.isnan(esperados)
         # Con menos de media ventana, o con un perfil que suma cero, el factor
         # seria ruido amplificado: mejor no corregir nada.
         if validos.sum() < max(2, ventana // 2) or esperados[validos].sum() <= 0:
             return 1.0
         return float(np.clip(reales[validos].sum() / esperados[validos].sum(), *LIMITES_FACTOR))
+
+    def desfase(self, estacion: str, ancla_at: pd.Timestamp) -> int:
+        """Pasos de 15 min que conviene correr el perfil para alinearlo con lo
+        que acaba de pasar (positivo = el pico real llega mas tarde que en el
+        perfil). 0 salvo que correrlo baje el error al menos MEJORA_MINIMA_FASE.
+        Solo mira datos <= `ancla_at`."""
+        serie, perfil = self._serie.get(str(estacion)), self._perfil.get(str(estacion))
+        if serie is None:
+            return 0
+        fin = self._paso(ancla_at) + 1
+        inicio = fin - VENTANA_FASE
+        margen = max(abs(d) for d in DESFASES)
+        if inicio - margen < 0 or fin + margen > perfil.size:
+            return 0
+        t = np.arange(inicio, fin)
+        reales = serie[t]
+        errores: dict[int, float] = {}
+        for d in DESFASES:
+            esperados = perfil[t - d]
+            validos = ~np.isnan(reales) & ~np.isnan(esperados)
+            if validos.sum() < VENTANA_FASE // 2 or esperados[validos].sum() <= 0:
+                continue
+            # Cada desfase se compara con su mejor nivel: lo que importa aqui
+            # es la FORMA de la curva, el nivel ya lo corrige el factor.
+            k = reales[validos].sum() / esperados[validos].sum()
+            errores[d] = float(np.abs(reales[validos] - k * esperados[validos]).sum() / max(reales[validos].sum(), 1e-9))
+        if 0 not in errores:
+            return 0
+        mejor = min(errores, key=errores.get)
+        return mejor if errores[0] - errores[mejor] > MEJORA_MINIMA_FASE * errores[0] else 0
 
     def peso_de_mezcla(self, estacion: str, ancla_at: pd.Timestamp) -> float:
         """Peso del perfil frente al champion para esta estacion y este ancla.
@@ -175,10 +227,16 @@ class PerfilAdaptativo:
         perfil = self._perfil.get(str(estacion))
         if perfil is None:
             return None
-        paso = self._paso(target_at)
+        # La correccion de fase es una mejora, no un requisito: si falla por
+        # lo que sea se predice con el perfil sin desplazar.
+        try:
+            desfase = self.desfase(estacion, ancla_at)
+        except Exception:
+            desfase = 0
+        paso = self._paso(target_at) - desfase
         if not 0 <= paso < perfil.size or np.isnan(perfil[paso]):
             return None
-        return float(perfil[paso] * self.factor_de_nivel(estacion, ancla_at))
+        return float(perfil[paso] * self.factor_de_nivel(estacion, ancla_at, desfase=desfase))
 
 
 def mezclar(valor_champion: float, valor_perfil: float | None, peso_perfil: float = MEZCLA_PERFIL) -> float:
