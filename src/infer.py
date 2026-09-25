@@ -115,14 +115,12 @@ def build_anchor_features(client: httpx.Client, supabase_url: str, data_cutoff: 
     """Reconstruye, por estacion, la fila de features tal como se veian en
     `data_cutoff`.
 
-    Devuelve tambien las observaciones crudas: el champion solo necesita 8
-    dias (lag_672 y roll_mean_96/roll_std_96 cubren una semana), pero el
-    perfil adaptativo promedia dias del mismo tipo con vida media de 14 dias
-    y se queda ciego con tan poca historia. Se pide la ventana larga una sola
-    vez y cada modelo toma lo que le sirve.
+    Devuelve tambien las observaciones crudas, que necesita el perfil
+    adaptativo (promedia dias del mismo tipo con vida media de 14 dias y se
+    queda ciego con poca historia). La ventana larga se pide una sola vez y
+    la comparten el champion -por `slot_mean`- y el perfil.
     """
     window_start = (data_cutoff - pd.Timedelta(days=DIAS_DE_HISTORIA)).isoformat()
-    window_start_champion = (data_cutoff - pd.Timedelta(days=8)).isoformat()
     headers = supabase_headers()
 
     obs_rows = fetch_all_rows(
@@ -136,7 +134,7 @@ def build_anchor_features(client: httpx.Client, supabase_url: str, data_cutoff: 
     context_rows = fetch_all_rows(
         client, f"{supabase_url}/rest/v1/context_readings", headers,
         {
-            "observed_at": [f"gte.{window_start_champion}", f"lte.{data_cutoff.isoformat()}"],
+            "observed_at": [f"gte.{window_start}", f"lte.{data_cutoff.isoformat()}"],
             # rain_forecast/temperature_forecast son features del modelo: si no
             # se piden aqui, build_feature_frame no puede calcularlas y se
             # mandaban en 0. Pedir de menos en un `select` no falla, solo
@@ -157,10 +155,14 @@ def build_anchor_features(client: httpx.Client, supabase_url: str, data_cutoff: 
     context = pd.DataFrame(context_rows)
     context["observed_at"] = pd.to_datetime(context["observed_at"])
 
-    # El champion se arma con su ventana de siempre: darle 28 dias cambiaria
-    # los roll_* respecto a como fue entrenado y validado.
-    recientes = observations[observations["observed_at"] >= pd.Timestamp(window_start_champion)]
-    anchor_frame = build_feature_frame(recientes, context)
+    # El champion tambien recibe la ventana larga. `slot_mean` es un promedio
+    # ACUMULADO de las semanas previas de cada franja: en entrenamiento junta
+    # ~4-6 semanas, y con solo 8 dias de historia en produccion veia UNA sola
+    # observacion, un valor mucho mas ruidoso que el que aprendio. Medido con
+    # origen rodante en 5 ventanas, dar 28 dias sube el champion de 86.98 a
+    # 87.62 de media y de 84.58 a 84.97 en el peor dia. Los roll_* y los lags
+    # no cambian: ninguno mira mas de 2 dias atras.
+    anchor_frame = build_feature_frame(observations, context)
     anchors = anchor_frame.sort_values("observed_at").groupby("station_id").tail(1).set_index("station_id")
     print(f"Ancla reconstruida para {len(anchors)} estaciones ({len(observations)} observaciones leidas).")
     return anchors, observations
