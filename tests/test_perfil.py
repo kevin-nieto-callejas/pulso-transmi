@@ -102,3 +102,14 @@ def test_mezclar_respeta_al_champion_cuando_el_perfil_calla():
     assert mezclar(100.0, None) == 100.0
     assert mezclar(100.0, float("nan")) == 100.0
     assert mezclar(100.0, 200.0, peso_perfil=0.4) == pytest.approx(140.0)
+
+
+def test_el_piso_permite_seguir_un_cierre():
+    """El generador programa un `closure` que deja una estacion en el 40% de
+    su demanda. Si el piso del factor fuera 0.5, el perfil no podria seguir
+    esa caida aunque la viera. Este test fija esa capacidad."""
+    assert LIMITES_FACTOR[0] < 0.40, "el piso debe dejar seguir un cierre a x0.40"
+
+    obs = _observaciones(factor_ultimo_dia=0.40)
+    factor = PerfilAdaptativo(obs).factor_de_nivel("01000", pd.Timestamp("2026-08-21 08:00", tz=ZONA))
+    assert factor == pytest.approx(0.40, rel=0.05)

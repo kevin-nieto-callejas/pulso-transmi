@@ -40,7 +40,14 @@ PASOS_POR_HORA = 4
 # scratchpad/test_perfil_v2.py y la tabla completa en docs/HALLAZGOS.md.
 VIDA_MEDIA_DIAS = 14.0
 VENTANA_NIVEL = 4          # 4 pasos = la ultima hora
-LIMITES_FACTOR = (0.5, 1.6)  # un factor fuera de esto es un dato roto, no un drift
+# Un factor fuera de estos limites es un dato roto, no un drift. El piso no es
+# 0.5 por una razon concreta: el contrato del generador programa un `closure`
+# que deja una estacion en el 40% de su demanda. Con piso 0.5 el perfil no
+# podria seguir esa caida NI AUNQUE la viera - se quedaria corto por diseno
+# justo en el evento que mas castiga. Bajarlo a 0.30 no cuesta nada en regimen
+# normal (mismo resultado en las 5 ventanas de validacion, porque el factor
+# nunca llega ahi) y da margen para el cierre.
+LIMITES_FACTOR = (0.30, 1.6)
 DIAS_DE_HISTORIA = 28      # con vida media 14 d, mas atras pesa <0.25
 MEZCLA_PERFIL = 0.4        # peso del perfil frente al champion
 
