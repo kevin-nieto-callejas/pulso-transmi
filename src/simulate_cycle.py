@@ -40,6 +40,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from evaluate import emparejar_con_la_realidad, metricas_por_ciclo, supabase_headers, traer  # noqa: E402
 from features import HORIZONS_MINUTES, wape_accuracy  # noqa: E402
 from infer import build_anchor_features, build_batch_predictions  # noqa: E402
+from perfil import PerfilAdaptativo  # noqa: E402
 from predict import get_champion, load_model_from_storage  # noqa: E402
 
 
@@ -94,9 +95,13 @@ def main() -> None:
         # 3. Predecir con el champion real, por el mismo camino que infer.py
         champion = get_champion()
         bundle = load_model_from_storage(champion["artifact_location"])
-        anclas = build_anchor_features(client, url, data_cutoff)
+        anclas, observaciones = build_anchor_features(client, url, data_cutoff)
+        # El simulacro tiene que recorrer el MISMO camino que la entrega real,
+        # perfil incluido: si aqui se predijera solo con el champion, dejaria
+        # de detectar los problemas que importan.
         predicciones = build_batch_predictions(
             bundle["model"], bundle["feature_columns"], anclas, targets, data_cutoff,
+            PerfilAdaptativo(observaciones),
         )
         horizontes_usados = sorted({
             round((pd.Timestamp(p["target_at"]) - data_cutoff).total_seconds() / 60) for p in predicciones
