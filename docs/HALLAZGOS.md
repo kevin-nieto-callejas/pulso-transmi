@@ -306,3 +306,35 @@ Dos detalles de la implementación que no son opcionales:
 - Si el perfil no tiene opinión (estación nueva, franja sin historia) devuelve
   `None` y la entrega sale con el champion solo. **Perder un ciclo cuesta
   mucho más que entregarlo un punto peor.**
+
+---
+
+## 26. El profesor fijo el Corte 1 y no definio aun su cierre
+
+El `contract-watch` se puso en rojo el 28-sep: seis commits nuevos del profesor.
+Ninguno toca el camino de entrega (submissions, ciclos y campos siguen
+identicos; `check_contract.py` lo confirma contra la API real), pero dos de
+ellos cambian las reglas de evaluacion y valia leerlos:
+
+- **El Corte 1 arranca el 25-sep a las 00:00 Bogota (`2026-09-25T05:00:00Z`)**,
+  con inicio fijo, no ventana movil. Los ciclos del 21 al 24 quedan como
+  historico de aprendizaje y **no cuentan**: ni en el acumulado, ni en la
+  ventana de seis ciclos, ni en los totales de entregas.
+- **El fin del corte todavia no esta fijado.** El documento
+  `docs/primer-corte-evaluacion.md` dice explicitamente que antes de cerrar una
+  nota hay que fijar ese fin y guardar un snapshot reproducible. Nuestra
+  estimacion de "termina el 28-sep" salia de `competition_days: 7` en
+  `config/scenario.example.yaml`, que es un EJEMPLO: no hay fecha confirmada, y
+  conviene seguir entregando hasta que el reloj deje de correr.
+- La fase de drift empezo "la noche del 25 de septiembre", que es exactamente
+  cuando vimos el `peak_shift` y despues el `closure`.
+- Un target no entregado se evalua como prediccion cero, y los reintentos del
+  mismo ciclo no suman ciclos: cuenta el intento oficial.
+
+El leaderboard por API ya refleja este corte: `cumulative` trae `starts_at` y
+`resolved_cycles` desde el 25-sep, y `accuracy_at_20` viene en `null` en esa
+ventana a proposito.
+
+La leccion operativa: la alarma de contrato sirvio para enterarnos de un cambio
+de REGLAS, no de un cambio de API. Vale la pena leer los commits del profesor
+aunque el pipeline siga funcionando.
