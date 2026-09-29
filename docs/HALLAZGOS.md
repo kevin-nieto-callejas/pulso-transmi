@@ -338,3 +338,44 @@ ventana a proposito.
 La leccion operativa: la alarma de contrato sirvio para enterarnos de un cambio
 de REGLAS, no de un cambio de API. Vale la pena leer los commits del profesor
 aunque el pipeline siga funcionando.
+
+## 27. La continuacion del escenario supero los topes del factor de nivel
+
+El 28-sep a las ~15:50 UTC el reloj paso a `state: "waiting"` durante ~5.7 h
+(sin ciclo abierto, sin penalizacion: confirmado en `docs/fase-drift.md`, "el
+escenario original agoto su horizonte"). Un PR del profesor (`julianzu9612`,
+28-sep) implemento una continuacion versionada con "dificultad" 0-3 y fijo el
+**cierre real: viernes 2 de octubre 2026 a las 23:59 Bogota**.
+
+Tras la reactivacion, el accuracy por ciclo (no el promedio movil 24h, que
+suaviza esto) cayo de 92.87 a 75.74 en 5 horas (ciclos T100000Z-T150000Z),
+con sesgo fuertemente negativo. El diagnostico en vivo mostro el factor de
+nivel pegado a los dos topes a la vez, en estaciones distintas:
+
+- **02300 y 05000**: `factor_de_nivel` pegado al tope superior (1.6) en las
+  ventanas corta Y larga durante 4 ciclos seguidos. pred/real = 0.44-0.58: la
+  demanda real subio a ~2.0x y el tope no dejaba seguirla.
+- **05100**: cierre detectado (`peso_perfil=1.0`), factor pegado al piso
+  (0.30), pero pred/real SUBIO 1.11 -> 1.57 ciclo a ciclo: la demanda real
+  seguia cayendo por debajo del 30% que el piso permitia representar.
+
+Backtest causal (mismas observaciones que se habrian tenido en cada ciclo,
+comparado contra el ground truth ya resuelto):
+
+| estacion | accuracy con tope viejo (0.30, 1.6) | con tope nuevo (0.15, 2.5) |
+|---|---|---|
+| 02300 | 58.99 | 74.62 |
+| 05000 | 52.69 | 77.38 |
+| 05100 | 73.46 | 79.42 |
+
+Chequeo de regresion sobre 8 ciclos sanos previos (384 predicciones, 12
+estaciones): **0 predicciones cambiaron**, WAPE identico al decimal. El
+tope solo se activa cuando la demanda real ya se desvio >60% del perfil, asi
+que ampliarlo no cuesta nada en regimen normal — mismo razonamiento que bajar
+el piso de 0.5 a 0.3 la primera vez (hallazgo original en `perfil.py`).
+
+`LIMITES_FACTOR` paso de `(0.30, 1.6)` a `(0.15, 2.5)` (commit `8c1a29d`).
+La leccion: el promedio movil de 24h que usa el vigilante de drift esconde
+caidas reales de 3-5 horas en estaciones puntuales porque las diluye entre 24
+ciclos buenos. Hay que revisar tambien el accuracy POR CICLO (el dashboard lo
+grafica) y no solo el promedio movil.
