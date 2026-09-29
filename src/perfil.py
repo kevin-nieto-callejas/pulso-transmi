@@ -47,7 +47,18 @@ VENTANA_NIVEL = 4          # 4 pasos = la ultima hora
 # justo en el evento que mas castiga. Bajarlo a 0.30 no cuesta nada en regimen
 # normal (mismo resultado en las 5 ventanas de validacion, porque el factor
 # nunca llega ahi) y da margen para el cierre.
-LIMITES_FACTOR = (0.30, 1.6)
+#
+# Ampliado el 29-sep-2026 tras la continuacion del escenario (docs/drift-control.md,
+# niveles 0-3): con ground truth ya resuelto se confirmo el mismo patron pero mas
+# extremo en ambas puntas. 02300 y 05000 corrieron 4 ciclos seguidos con
+# pred/real = 0.44-0.58 (factor de nivel pegado al tope 1.6 en las dos ventanas,
+# la demanda real real pedia ~2.0x) y 05100 al reves: cierre detectado, factor
+# pegado al piso 0.30, pero pred/real subio 1.11 -> 1.57 ciclo a ciclo porque la
+# demanda real seguia cayendo por debajo del 30% que el piso permitia. Mismo
+# razonamiento que la vez anterior: en regimen normal el factor nunca se acerca
+# a 2.5 ni a 0.15 (no cambia nada en los ciclos sanos), y da margen para seguir
+# un salto de nivel o un cierre mas severo que los ya vistos.
+LIMITES_FACTOR = (0.15, 2.5)
 DIAS_DE_HISTORIA = 28      # con vida media 14 d, mas atras pesa <0.25
 MEZCLA_PERFIL = 0.4        # peso del perfil frente al champion
 
