@@ -58,7 +58,22 @@ VENTANA_NIVEL = 4          # 4 pasos = la ultima hora
 # razonamiento que la vez anterior: en regimen normal el factor nunca se acerca
 # a 2.5 ni a 0.15 (no cambia nada en los ciclos sanos), y da margen para seguir
 # un salto de nivel o un cierre mas severo que los ya vistos.
-LIMITES_FACTOR = (0.15, 2.5)
+#
+# Ampliado de nuevo el 30-sep-2026: el profesor activo la revision 3 de drift
+# (docs/HALLAZGOS.md #28), mas exigente que la 2. El tope de 2.5 duro menos de
+# un dia: el accuracy por ciclo cayo de ~90 a 34.6 (ciclo T050000Z), con las 12
+# estaciones cayendo A LA VEZ (no 2-4 como antes) y el factor pegado exacto en
+# 2.5 en casi todas. Medido sin tope en el momento: 07111 en 6.42x, 02300 en
+# 5.95x, varias entre 3x y 6x, y el factor CORTO por encima del LARGO en casi
+# todas - la subida seguia acelerando, no se habia estabilizado. Backtest causal
+# contra el ciclo T050000Z ya resuelto: tope 2.5 -> 41.3 de accuracy (perfil
+# solo, 12 estaciones); tope 5.0 -> 50.6; tope 8.0 y 12.0 dan lo mismo que 5.0
+# (no hace falta mas para ESE ciclo, pero la demanda seguia subiendo despues).
+# Se sube a 10.0 con margen sobre el 6.42x ya visto, para no repetir este mismo
+# ajuste en un par de ciclos si la subida no toco techo todavia. Mismo
+# razonamiento de siempre: en regimen sano el factor nunca se acerca ni a 10 ni
+# a 0.15, asi que no cambia nada fuera de estos episodios.
+LIMITES_FACTOR = (0.15, 10.0)
 DIAS_DE_HISTORIA = 28      # con vida media 14 d, mas atras pesa <0.25
 MEZCLA_PERFIL = 0.4        # peso del perfil frente al champion
 
