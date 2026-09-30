@@ -1,0 +1,66 @@
+name: retrain-watch
+
+# El profesor confirmo por fuera del reto que metio el drift "al maximo" (un
+# cambio de FORMA en la demanda, ver docs/HALLAZGOS.md #28) y pidio
+# explicitamente: reentrenar cada vez que el accuracy caiga por debajo de un
+# umbral fijo, para mantenerlo alto mientras dure la fase mas dura del drift.
+#
+# Dos pasos separados a proposito:
+#   1. Chequeo barato (src/check_recent_accuracy.py, segundos): promedio de
+#      los ultimos 6 ciclos oficiales resueltos contra el umbral.
+#   2. Reentreno caro (src/train.py, "mas de una hora" segun su propio
+#      comentario) SOLO si el chequeo dice que hace falta.
+# train.py trae su propia red de seguridad: una version nueva solo reemplaza
+# al champion si lo SUPERA en la misma validacion cruzada temporal. Disparar
+# el reentreno de mas nunca puede degradar el champion vigente.
+on:
+  schedule:
+    # Dos chequeos por hora, en minutos poco congestionados (ver el mismo
+    # razonamiento en inference.yml). El chequeo en si es barato; el
+    # reentreno completo solo corre cuando el chequeo lo pide.
+    - cron: "12,42 * * * *"
+  workflow_dispatch: {}
+
+# Si un reentreno sigue corriendo (puede tardar mas de una hora) y llega el
+# siguiente disparo, que espere en cola en vez de correr en paralelo: dos
+# reentrenos simultaneos compitiendo por promover el champion es una carrera
+# innecesaria, y el chequeo barato de todas formas volveria a decir "hace
+# falta" si la caida sigue vigente cuando le toque el turno.
+concurrency:
+  group: pulso-transmi-retrain
+  cancel-in-progress: false
+
+jobs:
+  check-y-reentrenar:
+    runs-on: ubuntu-latest
+    # El chequeo tarda segundos; el reentreno "mas de una hora" (train.py).
+    # Margen generoso para no cortar una corrida real a mitad de camino.
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e '.[ml]'
+      - name: Chequear accuracy reciente
+        id: chequeo
+        run: |
+          if python src/check_recent_accuracy.py; then
+            echo "hace_falta=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "hace_falta=si" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          # Punto medio conservador del rango que pidio el profesor (80-85%).
+          UMBRAL_REENTRENO: "82.5"
+      - name: Reentrenar (solo si el chequeo lo pide)
+        if: steps.chequeo.outputs.hace_falta == 'si'
+        run: python src/train.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
