@@ -56,8 +56,10 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          # Punto medio conservador del rango que pidio el profesor (80-85%).
-          UMBRAL_REENTRENO: "82.5"
+          # El profesor pidio explicitamente 85% como umbral (no el punto medio
+          # del rango original 80-85): reentrenar cada vez que el promedio de
+          # los ultimos 6 ciclos caiga por debajo de esto.
+          UMBRAL_REENTRENO: "85"
       - name: Reentrenar (solo si el chequeo lo pide)
         if: steps.chequeo.outputs.hace_falta == 'si'
         run: python src/train.py

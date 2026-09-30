@@ -35,10 +35,10 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-# El profesor dio un rango (80-85%); se toma el punto medio conservador para
-# no disparar reentrenos de mas por ruido de un solo ciclo, pero reaccionar
-# antes de perforar el piso de abajo.
-UMBRAL_ACCURACY = float(os.environ.get("UMBRAL_REENTRENO", "82.5"))
+# El profesor pidio explicitamente 85% como umbral (no un punto medio): con
+# el drift "al maximo" activo, quiere el reentreno disparando apenas se
+# perfore ese piso, no esperar a que baje mas.
+UMBRAL_ACCURACY = float(os.environ.get("UMBRAL_REENTRENO", "85"))
 
 # Mismo tamano de ventana que usa el leaderboard oficial ("ultimos 6 ciclos"),
 # para que "cayo por debajo del umbral" signifique lo mismo aqui y alla.
