@@ -60,6 +60,17 @@ jobs:
           # del rango original 80-85): reentrenar cada vez que el promedio de
           # los ultimos 6 ciclos caiga por debajo de esto.
           UMBRAL_REENTRENO: "85"
+      - name: Exportar datos frescos de Supabase (solo si hace falta reentrenar)
+        # train.py lee data/observations.csv y data/context.csv del disco, no
+        # consulta Supabase directamente - un diseno pensado para una foto ya
+        # descargada a mano. data/ esta en .gitignore, asi que en un runner
+        # limpio ese archivo no existe: sin este paso train.py falla con
+        # FileNotFoundError (paso lo primero que se intento, 30-sep).
+        if: steps.chequeo.outputs.hace_falta == 'si'
+        run: python src/export_training_data.py
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       - name: Reentrenar (solo si el chequeo lo pide)
         if: steps.chequeo.outputs.hace_falta == 'si'
         run: python src/train.py
