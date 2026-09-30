@@ -77,6 +77,24 @@ UMBRAL_CIERRE_LARGO = 0.80  # factor de las ultimas 2 horas (8 pasos)
 VENTANA_CIERRE_LARGA = 8
 PESO_PERFIL_CIERRE = 1.0
 
+# Deteccion de alza sostenida, simetrica al cierre. El 30-sep el profesor activo
+# una revision de drift que cambia la FORMA temporal de la demanda (no solo el
+# nivel) - su propia bitacora dice que "la antigua referencia adaptativa que
+# solo ajustaba la escala del perfil deja de ser apropiada". Con el tope recien
+# ampliado a 2.5 se vio en vivo: 02300 y 05000 llevan horas con el factor pegado
+# al tope en las dos ventanas, y como no tienen desfase se quedan en el 40% de
+# mezcla de siempre - el champion (60%) no sabe nada de la subida y arrastra la
+# prediccion. 06000 paso de factor4=1.28 a 2.50 en una sola hora y su accuracy
+# se desplomo de 82 a 37 en el mismo salto. Con el perfil solo como referencia
+# optimista, las estaciones en alza sostenida (02300, 05000, 07111) miden
+# 85-90 de accuracy en las 7 horas de este episodio - muy por encima de lo que
+# puede dar un champion ciego al evento. Chequeado contra 15 anclas de regimen
+# sano (5-9 sep, 180 combinaciones estacion x hora): CERO disparos falsos,
+# porque el factor nunca se acerca a estos umbrales sin una subida real.
+UMBRAL_ALZA_CORTO = 1.30
+UMBRAL_ALZA_LARGO = 1.20
+PESO_PERFIL_ALZA = 1.0
+
 # Peso del perfil cuando hay un desfase confirmado. El champion sigue anclado a
 # la hora vieja del pico: con el peak_shift la rampa de la manana llega ~45 min
 # tarde y el champion la predice antes, sobrepredice las horas previas y
@@ -233,7 +251,9 @@ class PerfilAdaptativo:
         """Peso del perfil frente al champion para esta estacion y este ancla.
 
         Normalmente MEZCLA_PERFIL. Si el nivel se desploma en las dos ventanas
-        (un cierre), el champion deja de opinar y manda el perfil escalado.
+        (un cierre) o sube sostenido en las dos ventanas (una alza), el
+        champion deja de opinar y manda el perfil escalado: en ambos casos el
+        champion esta anclado al regimen viejo y el perfil ya vio lo que paso.
 
         El nivel se mide contra el perfil YA desplazado por el desfase estimado.
         Sin eso, una estacion con el pico corrido (peak_shift) parece hundirse
@@ -250,6 +270,8 @@ class PerfilAdaptativo:
         largo = self.factor_de_nivel(estacion, ancla_at, VENTANA_CIERRE_LARGA, desfase)
         if corto < UMBRAL_CIERRE_CORTO and largo < UMBRAL_CIERRE_LARGO:
             return PESO_PERFIL_CIERRE
+        if corto > UMBRAL_ALZA_CORTO and largo > UMBRAL_ALZA_LARGO:
+            return PESO_PERFIL_ALZA
         return PESO_PERFIL_CON_DESFASE if desfase != 0 else MEZCLA_PERFIL
 
     def predecir(self, estacion: str, target_at: pd.Timestamp, ancla_at: pd.Timestamp) -> float | None:

@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from perfil import (  # noqa: E402
     LIMITES_FACTOR,
     MEZCLA_PERFIL,
+    PESO_PERFIL_ALZA,
     PESO_PERFIL_CIERRE,
     PESO_PERFIL_CON_DESFASE,
     PerfilAdaptativo,
@@ -164,6 +165,25 @@ def test_un_valle_de_una_sola_hora_no_cuenta_como_cierre():
 def test_una_estacion_desconocida_no_dispara_el_detector():
     perfil = PerfilAdaptativo(_observaciones())
     assert perfil.peso_de_mezcla("99999", pd.Timestamp("2026-08-21 08:00", tz=ZONA)) == MEZCLA_PERFIL
+
+
+def _observaciones_con_alza(dias: int = 21, factor_alza: float = 2.0, horas_de_alza: int = 4) -> pd.DataFrame:
+    """Como `_observaciones_con_cierre`, pero al reves: la estacion sube a
+    `factor_alza` durante las ultimas `horas_de_alza` horas (una alza ya en
+    marcha, como la que trae un cambio de forma en la demanda)."""
+    obs = _observaciones(dias=dias)
+    corte = obs["observed_at"].max() - pd.Timedelta(hours=horas_de_alza)
+    obs.loc[obs["observed_at"] > corte, "demand"] *= factor_alza
+    return obs
+
+
+def test_una_alza_sostenida_le_quita_la_voz_al_champion():
+    """Simetrico al cierre: con el nivel disparado en las dos ventanas, el
+    champion sigue creyendo en el regimen viejo y manda el perfil escalado."""
+    obs = _observaciones_con_alza()
+    perfil = PerfilAdaptativo(obs)
+    ancla = obs["observed_at"].max()
+    assert perfil.peso_de_mezcla("01000", ancla) == PESO_PERFIL_ALZA
 
 
 def _observaciones_con_pico_corrido(dias: int = 21, pasos: int = 3, dias_corridos: int = 2) -> pd.DataFrame:
