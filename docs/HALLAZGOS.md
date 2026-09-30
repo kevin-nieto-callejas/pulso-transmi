@@ -379,3 +379,60 @@ La leccion: el promedio movil de 24h que usa el vigilante de drift esconde
 caidas reales de 3-5 horas en estaciones puntuales porque las diluye entre 24
 ciclos buenos. Hay que revisar tambien el accuracy POR CICLO (el dashboard lo
 grafica) y no solo el promedio movil.
+
+## 28. El profesor cambio la FORMA de la demanda (no solo el nivel) y faltaba
+    el detector simetrico de alza
+
+El 30-sep a las 14:52 hora Bogota el profesor activo la "revision 2" de drift
+(nivel 3) y poco despues la "revision 3", mas exigente aun (`docs/drift-
+operations.md` del repo del profesor). Su propia bitacora es explicita:
+
+> "La continuacion privada modifica la forma temporal de la demanda... La
+> antigua referencia adaptativa que solo ajustaba la escala del perfil deja
+> de ser apropiada para este cambio de forma."
+
+Calibracion propia del profesor para la revision 3 (referencias privadas,
+no nuestras notas): fija con variables recientes 55.0-55.6%, la MISMA
+familia reentrenada periodicamente 79.4-80.3% (recupera a ~84% entre las
+horas 18-30; las primeras 6 horas son duras incluso para el modelo
+adaptativo, ~55-56%).
+
+El accuracy por ciclo confirmo el golpe: de 89-91% cayo a 67.4% en una hora
+(ciclo T040000Z del 18-sep). El diagnostico en vivo mostro la mitad del
+mecanismo que ya teniamos (el `LIMITES_FACTOR` ampliado del hallazgo #27) y
+la mitad que faltaba: **02300 y 05000 llevaban horas con el factor de nivel
+pegado al tope (2.5) en las DOS ventanas, pero al no tener desfase se
+quedaban en `MEZCLA_PERFIL=0.4` de siempre** - el champion, con 60% de la
+mezcla y ciego al evento, arrastraba la prediccion hacia abajo. `06000` paso
+de factor4=1.28 a 2.50 en una sola hora (entre los anclas de los ciclos
+T040000Z y T050000Z) y su accuracy se desplomo de 82 a 37 en el mismo salto.
+
+El cierre ya tenia su detector (hallazgo original): cuando el factor se
+desploma en las dos ventanas, se le quita la voz al champion. Faltaba el
+espejo: cuando el factor se DISPARA en las dos ventanas, pasa exactamente lo
+mismo pero al reves, y no habia nada que lo capturara salvo el desfase (que
+solo cubre corrimientos de fase, no saltos de nivel puros).
+
+Se agrego `UMBRAL_ALZA_CORTO=1.30`, `UMBRAL_ALZA_LARGO=1.20`,
+`PESO_PERFIL_ALZA=1.0`, chequeado en `peso_de_mezcla` justo despues del
+cierre. Validacion:
+
+- Con el perfil solo como referencia optimista sobre las 7 horas del
+  episodio (17-sep 21:00 a 18-sep 04:00): 02300 87.3%, 05000 87.7%,
+  05100 89.4%, 03000 86.6% - muy por encima de lo que puede dar un champion
+  ciego al evento.
+- 180 combinaciones estacion x hora de regimen sano (5 al 9 de septiembre,
+  antes de cualquier drift): **cero disparos falsos**.
+- Test unitario `test_una_alza_sostenida_le_quita_la_voz_al_champion`
+  (simetrico a `test_un_cierre_le_quita_la_voz_al_champion`). Nota interna:
+  el detector de fase (`desfase`) mostro una asimetria en el escenario
+  sintetico de alza sostenida por mas de 4 horas (encuentra un desfase
+  espureo que no aparece en el escenario simetrico de cierre); no se
+  investigo a fondo por la urgencia, pero no bloquea el caso real porque el
+  peor resultado posible es caer a `PESO_PERFIL_CON_DESFASE=0.70` en vez de
+  `1.0` - sigue siendo mejor que el `0.4` de antes. Vale la pena revisarlo
+  con mas tiempo.
+
+Commit `ee8675c`. El cierre real de la competencia sigue fijo el viernes 2 de
+octubre 23:59 hora Bogota (confirmado otra vez en la misma bitacora del
+profesor).
