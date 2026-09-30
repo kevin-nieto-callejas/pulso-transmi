@@ -436,3 +436,28 @@ cierre. Validacion:
 Commit `ee8675c`. El cierre real de la competencia sigue fijo el viernes 2 de
 octubre 23:59 hora Bogota (confirmado otra vez en la misma bitacora del
 profesor).
+
+## 29. La revision 3 de drift supero el tope de 2.5 en menos de un dia
+
+El detector de alza (#28) funciono como se diseño - peso=1.0 activo en casi
+todas las estaciones a la primera senal - pero el tope de 2.5 resulto
+insuficiente para la magnitud real de la revision 3. Accuracy por ciclo:
+~90 (17-sep 23:00) -> 67.4 -> 37.4 -> 34.6 en cuestion de horas, con las 12
+estaciones cayendo simultaneamente (antes eran 2-4 estaciones puntuales).
+
+Medido sin tope en vivo (ancla 18-sep 06:00): 07111 en 6.42x, 02300 en 5.95x,
+la mayoria entre 3x y 6x, con el factor CORTO por encima del LARGO en casi
+todas las estaciones - la subida seguia acelerando, sin estabilizarse
+todavia. Backtest causal contra el ciclo T050000Z ya resuelto (ground truth
+real): tope 2.5 -> 41.3 de accuracy (perfil solo); tope 5.0 -> 50.6; 8.0 y
+12.0 no mejoran mas alla de 5.0 para ESE ciclo puntual, pero la demanda
+seguia subiendo despues de resuelto. Se subio el tope a 10.0 (commit
+`84c1390`), con margen sobre el 6.42x ya visto, para absorber una subida
+que aun no toco techo sin tener que repetir el ajuste en un par de ciclos.
+Chequeo de regresion: 0 predicciones cambiaron en 15 anclas de regimen sano.
+
+Leccion: un tope que se subio de forma justificada y validada (#27) igual
+puede quedar corto si el evento real resulta mas severo que la evidencia
+disponible en el momento de fijarlo. La senal para revisarlo de nuevo es la
+misma: el factor pegado EXACTO al tope en la mayoria de las estaciones a la
+vez, con el accuracy por ciclo (no el promedio movil de 24h) cayendo fuerte.
