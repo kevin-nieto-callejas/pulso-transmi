@@ -231,12 +231,12 @@ async function load(){
  try{
   const [models,metrics,signals,runs,submissions,stations,cycles,obs]=await Promise.all([
    query("model_versions","select=version_id,status,validation_metric,created_at&order=created_at.desc"),
-   query("cycle_metrics","select=cycle_id,station_id,accuracy,wape,computed_at&order=computed_at.asc&limit=5000"),
+   query("cycle_metrics","select=cycle_id,station_id,accuracy,wape,computed_at&order=computed_at.desc&limit=1000").then(r=>r.reverse()),
    query("drift_signals","select=detected_at,signal_type,description,metric_value,threshold_value,action_taken&order=detected_at.desc&limit=100"),
    query("collector_runs","select=started_at,finished_at,status,rows_ingested,error_message&order=started_at.desc&limit=30"),
    query("submissions","select=submission_id,cycle_id,accepted,submitted_at,model_version_id&order=submitted_at.desc&limit=1000"),
    query("stations","select=station_id,station_name,corridor&order=station_id"),
-   query("cycles","select=cycle_id,opens_at,closes_at,status&order=opens_at.asc&limit=1000"),
+   query("cycles","select=cycle_id,opens_at,closes_at,status&order=opens_at.desc&limit=1000").then(r=>r.reverse()),
    query("observations","select=count&limit=1")]);
   state.data={models,metrics,signals,runs,submissions,stations,cycles,obs:Number(obs[0]?.count??0)};
   fillStations();setStatus("good","Datos conectados");$("#updated").textContent="Actualizado "+fdate(new Date());renderAll();
