@@ -583,3 +583,57 @@ que CUALQUIER modelo anclado en el nivel reciente sobrestime fuerte en
 terminos relativos (WAPE se dispara contra un denominador chico) - puede que
 el limite real aqui no sea de deteccion sino de lo que es forecasteable con
 1 hora de anticipacion en este regimen.
+
+---
+
+## 33. El enfoque de otra estudiante (autorizado por el profesor) - revisado, no adoptado
+
+**Contexto:** Kevin le pregunto directamente al profesor si podiamos revisar
+el enfoque de una companera (Maria Isabell Guzman Faneyte, `extra_trees_
+regressor_v1`, 58% en el leaderboard del momento) para mejorar el nuestro.
+El profesor autorizo explicitamente por correo, y ella confirmo que no le
+molestaba. Con permiso confirmado de ambas partes, se ubico su fork publico
+(`alomariaDev/pulso-transmi-sdk`, identidad confirmada por el email de sus
+commits) y se reviso su codigo de inferencia.
+
+**Que hace distinto:** arquitectura fundamentalmente distinta a la nuestra.
+Nosotros: champion fijo (entrenado una vez, solo se reemplaza si un
+reentreno le gana en CV) + perfil adaptativo como capa de correccion aparte.
+Ella: **reentrena un ExtraTreesRegressor completo en CADA ciclo** (cada 10
+min via GitHub Actions) con los datos mas frescos disponibles, SIN perfil
+adaptativo separado - y predice los 4 horizontes de forma RECURSIVA (predice
++15min, usa esa prediccion como si fuera una observacion real para calcular
+los lags de +30min, y asi sucesivamente), en vez de nuestro enfoque directo
+(un horizon_minutes como feature, prediccion independiente por horizonte
+desde la misma ancla). Al reentrenar tan seguido, su modelo base siempre
+"conoce" las ultimas horas de drift sin depender de una capa de correccion
+aparte. Tambien corre un detector de drift por PSI (Population Stability
+Index, ventana de 7 dias) para decidir cuando vale la pena reentrenar, mucho
+mas lento que nuestro mecanismo (chequeo cada 30 min contra el umbral fijo
+de 85% que pidio el profesor).
+
+**Que medimos:** se replico su pipeline exacto (mismas features: lags de 15
+min/1h/1d/7d, rolling mean/std, hora/dia, prediccion recursiva) entrenado
+SOLO con los ultimos 7 dias de nuestros propios datos (igual que ella),
+contra los dos ciclos del colapso ya analizados (#31, #32), comparando
+contra nuestro accuracy real de produccion en esos mismos ciclos:
+
+| Ciclo | Nuestro accuracy (produccion real) | Enfoque de ella (replicado con nuestros datos) |
+|---|---|---|
+| T080000Z | 43.5 | 42.5 |
+| T100000Z | 32.7 | 35.7 |
+
+Prácticamente empatado - mejor en un ciclo, peor en el otro, diferencias
+chicas frente al ruido normal entre ciclos.
+
+**Que implica:** no se adopta esta arquitectura. No es que la idea sea mala
+-el reentreno frecuente es una estrategia legitima contra drift, y la
+prediccion recursiva tiene merito- pero con solo 2 ciclos de evidencia y una
+señal mixta (no una ventaja clara y consistente), reescribir el pipeline de
+produccion (que corre cada hora, en vivo, sin margen de error) seria
+exactamente el tipo de cambio no validado que esta disciplina busca evitar.
+Si en el futuro hay tiempo para un backtest mas amplio (10+ ciclos, variando
+el tamano de la ventana de entrenamiento) y la señal se sostiene, vale la
+pena reconsiderarlo - probablemente como una tercera voz en la mezcla
+(champion + perfil + un modelo liviano reentrenado por ciclo) en vez de un
+reemplazo total.
