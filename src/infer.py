@@ -233,11 +233,22 @@ def build_batch_predictions(
 
         value = float(model.predict(row[feature_columns])[0])
 
+        # Tercera opinion, antes que nada: en un pico que se revierte de golpe
+        # (hallazgo #31/#34) hasta el perfil con peso reducido sigue
+        # extrapolando el nivel alto justo cuando la demanda real ya se
+        # hundio. Si el factor esta en zona EXTREMA, la extrapolacion lineal
+        # de la serie cruda (sin perfil historico) manda sola - probado que le
+        # gana por 20+ puntos de accuracy en el colapso sin costar nada
+        # perceptible en regimen sano (ver UMBRAL_EXTRAPOLACION_* en perfil.py).
+        valor_extremo = perfil.extrapolacion_extrema(station_id, anchor_at, target_at) if perfil is not None else None
+        if valor_extremo is not None:
+            print(f"  {station_id} +{horizon_minutes:2d}min: champion={value:8.1f}  EXTRAPOLACION EXTREMA -> {valor_extremo:8.1f}")
+            value = valor_extremo
         # Segunda opinion: el perfil adaptativo reacciona a un cambio de
         # regimen en la hora siguiente, mientras el champion sigue creyendo
         # en el regimen con el que se entreno. Si no tiene opinion para esta
         # franja, `mezclar` devuelve el champion intacto.
-        if perfil is not None:
+        elif perfil is not None:
             valor_perfil = perfil.predecir(station_id, target_at, anchor_at)
             peso = perfil.peso_de_mezcla(station_id, anchor_at)
             if valor_perfil is not None:

@@ -637,3 +637,51 @@ el tamano de la ventana de entrenamiento) y la señal se sostiene, vale la
 pena reconsiderarlo - probablemente como una tercera voz en la mezcla
 (champion + perfil + un modelo liviano reentrenado por ciclo) en vez de un
 reemplazo total.
+
+---
+
+## 34. Extrapolacion lineal pura en el caso EXTREMO - +20 a +23 puntos en el colapso
+
+**Que creiamos:** tras #31 (bajar `PESO_PERFIL_ALZA` a 0.5) y #32/#33 (nada
+mas probado ayudaba), el siguiente paso logico era buscar en la literatura de
+forecasting bajo concept drift. La investigacion confirma el principio: el
+aprendizaje online/incremental recupera de un drift en menos de 1 hora,
+contra 24h-7 dias de un reentreno por lotes (fuentes: [Online Learning vs
+Batch Retraining](https://inferensys.com/differences/logistics-and-supply-chain-visibility-ai/ai-driven-demand-forecasting-models/online-learning-vs-batch-retraining-for-demand-shift-adaptation),
+[When to Retrain (arXiv 2608.19488)](https://arxiv.org/pdf/2608.19488),
+[Proactive Model Adaptation Against Concept Drift (arXiv 2412.08435)](https://arxiv.org/html/2412.08435v3)).
+La version mas simple y barata de "online" es extrapolar linealmente la
+serie cruda reciente, sin pasar por ningun patron historico.
+
+**Que medimos:** probado con el protocolo de siempre (backtest causal, ground
+truth real, metrica oficial - accuracy por estacion promediado, NO WAPE
+global pooled, que es una metrica distinta y mas optimista que se uso por
+error en una primera pasada de este mismo hallazgo):
+
+- Extrapolacion lineal pura (ultimas 4 lecturas, 1h) contra los dos ciclos
+  del colapso (T080000Z, T100000Z): 75-77 de accuracy, muy por encima de
+  cualquier cosa probada hasta ahora.
+- Reemplazando SOLO el perfil historico en las estaciones que ya estaban en
+  alza/cierre (dejando el resto de la mezcla igual): produccion real 41.23 y
+  32.70 -> con extrapolacion 64.35 y 52.12. **+23 y +19 puntos.**
+- Chequeo de regresion en 8 ciclos de regimen sano (incluye alza/cierre
+  moderados ya cubiertos por los umbrales normales): activar la
+  extrapolacion en CUALQUIER alza/cierre (umbral normal) cuesta -1.87 puntos
+  de promedio (81.65 vs 83.52) - el perfil historico SI aporta forma en
+  casos moderados que una recta no tiene.
+- Barrido de un umbral mas exigente (solo activar si el factor esta MUY lejos
+  de 1.0, no en el borde): 2.0 y 2.5 conservan el beneficio completo del
+  colapso (64.35/52.12 identico) con -1.16 y -0.82 de costo en regimen sano;
+  3.0 ya empieza a perder beneficio en el colapso (49.32/46.12). Se eligio
+  2.5/0.4 (alza/cierre) como el mejor punto medido.
+
+**Que implica:** se agrego `extrapolacion_extrema()` a `PerfilAdaptativo`
+(`src/perfil.py`) y se conecto en `infer.py` ANTES de la mezcla
+champion+perfil de siempre: si el factor de nivel esta en zona extrema
+(>2.5 o <0.4), la extrapolacion lineal manda sola; si no, todo sigue igual
+que antes (#28/#31). Es la mejora de accuracy mas grande medida en toda esta
+investigacion del drift. 4 tests nuevos (67/67 en total). La leccion de #31
+se confirma y se agudiza: no solo "cuanto peso darle" al perfil importa, sino
+que el perfil historico en si mismo deja de ser la herramienta correcta
+cuando el evento es tan extremo que ningun dia anterior se le parece - ahi
+lo que sirve es la tendencia de la ULTIMA hora, no un patron de semanas.

@@ -126,6 +126,35 @@ UMBRAL_ALZA_CORTO = 1.30
 UMBRAL_ALZA_LARGO = 1.20
 PESO_PERFIL_ALZA = 0.5
 
+# Extrapolacion lineal directa sobre la serie cruda (sin pasar por el perfil
+# historico) para el caso EXTREMO: un pico que se revierte de golpe (hallazgo
+# #31) deja al perfil extrapolando el nivel alto justo cuando la demanda real
+# ya se desplomo, y bajar su peso a 0.5 no alcanza (T100000Z: 05000/07105/
+# 09122/02300/06000/07111 en 0.0 de accuracy exacto). La extrapolacion lineal
+# de las ultimas 4 lecturas (1 hora) no sabe nada de patrones historicos, solo
+# seguir la tendencia MAS RECIENTE - exactamente lo que hace falta cuando el
+# evento ya esta tan lejos de cualquier dia anterior que el perfil historico
+# estorba mas de lo que ayuda. Confirmado con la literatura: el aprendizaje
+# online/incremental recupera de un drift en <1h vs 24h-7 dias de un reentreno
+# por lotes (ver docs/HALLAZGOS.md #34).
+#
+# Pero NO es universal: en alza/cierre MODERADO (el caso normal que ya cubren
+# los umbrales de arriba) el perfil historico SI aporta forma que una recta no
+# tiene - probado en 8 ciclos de regimen sano, la extrapolacion sin filtro
+# pierde 1.9 puntos de promedio frente a la mezcla actual. Por eso el umbral
+# para activarla es mas exigente que el de alza/cierre normal: solo cuando el
+# factor esta MUY lejos de 1.0, no en el borde.
+#
+# Backtest causal real (T080000Z y T100000Z, accuracy oficial por estacion):
+# umbral 2.0/2.5 -> 64.35 y 52.12 (vs produccion real 41.23 y 32.70, +20 a +23
+# puntos); umbral 3.0 -> 49.32 y 46.12 (empieza a perder el beneficio, el
+# corte queda muy alto). Con 2.5 el costo en regimen sano baja a -0.82 puntos
+# (82.70 vs ~83.52) sin perder nada del beneficio en el colapso. Se deja en
+# 2.5/0.4.
+UMBRAL_EXTRAPOLACION_ALZA = 2.5
+UMBRAL_EXTRAPOLACION_CIERRE = 0.4
+PASOS_EXTRAPOLACION = 4  # 1 hora de historia (4 x 15 min)
+
 # Peso del perfil cuando hay un desfase confirmado. El champion sigue anclado a
 # la hora vieja del pico: con el peak_shift la rampa de la manana llega ~45 min
 # tarde y el champion la predice antes, sobrepredice las horas previas y
@@ -322,6 +351,42 @@ class PerfilAdaptativo:
         if not 0 <= paso < perfil.size or np.isnan(perfil[paso]):
             return None
         return float(perfil[paso] * self.factor_de_nivel(estacion, ancla_at, desfase=desfase))
+
+    def extrapolacion_extrema(
+        self, estacion: str, ancla_at: pd.Timestamp, target_at: pd.Timestamp,
+    ) -> float | None:
+        """Extrapolacion lineal directa sobre la serie cruda (sin perfil
+        historico), solo para el caso EXTREMO de alza/cierre. `None` si el
+        factor no esta en zona extrema (quien llama se queda con la mezcla
+        normal champion+perfil). Ver el comentario de UMBRAL_EXTRAPOLACION_*
+        arriba para la evidencia.
+        """
+        serie = self._serie.get(str(estacion))
+        if serie is None:
+            return None
+        try:
+            desfase = self.desfase(estacion, ancla_at)
+        except Exception:
+            desfase = 0
+        corto = self.factor_de_nivel(estacion, ancla_at, desfase=desfase)
+        extremo_alza = corto > UMBRAL_EXTRAPOLACION_ALZA
+        extremo_cierre = corto < UMBRAL_EXTRAPOLACION_CIERRE
+        if not (extremo_alza or extremo_cierre):
+            return None
+
+        fin = self._paso(ancla_at) + 1
+        inicio = max(0, fin - PASOS_EXTRAPOLACION)
+        ventana = serie[inicio:fin]
+        validos = ~np.isnan(ventana)
+        if validos.sum() < 2:
+            return None
+        y = ventana[validos]
+        x = np.arange(len(ventana))[validos]
+        pendiente, intercepto = np.polyfit(x, y, 1)
+
+        pasos_objetivo = self._paso(target_at) - (fin - 1)
+        valor = intercepto + pendiente * (len(ventana) - 1 + pasos_objetivo)
+        return float(max(0.0, valor))
 
 
 def mezclar(valor_champion: float, valor_perfil: float | None, peso_perfil: float = MEZCLA_PERFIL) -> float:

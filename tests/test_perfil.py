@@ -18,6 +18,8 @@ from perfil import (  # noqa: E402
     PESO_PERFIL_ALZA,
     PESO_PERFIL_CIERRE,
     PESO_PERFIL_CON_DESFASE,
+    UMBRAL_EXTRAPOLACION_ALZA,
+    UMBRAL_EXTRAPOLACION_CIERRE,
     PerfilAdaptativo,
     mezclar,
 )
@@ -184,6 +186,60 @@ def test_una_alza_sostenida_le_quita_la_voz_al_champion():
     perfil = PerfilAdaptativo(obs)
     ancla = obs["observed_at"].max()
     assert perfil.peso_de_mezcla("01000", ancla) == PESO_PERFIL_ALZA
+
+
+def test_una_alza_extrema_activa_la_extrapolacion():
+    """Con el factor MUY por encima del umbral de alza (no solo del umbral
+    normal), manda la extrapolacion lineal sobre la serie cruda, no el perfil
+    historico escalado (hallazgo #31/#34: con un pico que se revierte de
+    golpe, hasta el perfil con peso reducido se queda extrapolando el nivel
+    alto)."""
+    obs = _observaciones_con_alza(factor_alza=4.0)
+    perfil = PerfilAdaptativo(obs)
+    ancla = obs["observed_at"].max()
+    objetivo = ancla + pd.Timedelta(minutes=15)
+    assert perfil.factor_de_nivel("01000", ancla) > UMBRAL_EXTRAPOLACION_ALZA
+    assert perfil.extrapolacion_extrema("01000", ancla, objetivo) is not None
+
+
+def test_una_alza_moderada_no_activa_la_extrapolacion():
+    """Justo encima del umbral normal de alza pero lejos del umbral extremo:
+    se queda con la mezcla champion+perfil de siempre, no la extrapolacion."""
+    obs = _observaciones_con_alza(factor_alza=1.8)
+    perfil = PerfilAdaptativo(obs)
+    ancla = obs["observed_at"].max()
+    objetivo = ancla + pd.Timedelta(minutes=15)
+    assert perfil.factor_de_nivel("01000", ancla) < UMBRAL_EXTRAPOLACION_ALZA
+    assert perfil.extrapolacion_extrema("01000", ancla, objetivo) is None
+
+
+def test_un_cierre_extremo_activa_la_extrapolacion():
+    """Simetrico: un cierre muy por debajo del umbral extremo tambien manda
+    la extrapolacion en vez del perfil escalado."""
+    obs = _observaciones_con_cierre(factor_cierre=0.10)
+    perfil = PerfilAdaptativo(obs)
+    ancla = obs["observed_at"].max()
+    objetivo = ancla + pd.Timedelta(minutes=15)
+    assert perfil.factor_de_nivel("01000", ancla) < UMBRAL_EXTRAPOLACION_CIERRE
+    assert perfil.extrapolacion_extrema("01000", ancla, objetivo) is not None
+
+
+def test_la_extrapolacion_extrema_sigue_la_tendencia_reciente_no_el_pico():
+    """La extrapolacion debe seguir la caida reciente, no el nivel alto de
+    hace unas horas: con una subida que ya esta revirtiendo en las ultimas
+    lecturas, la prediccion debe quedar por DEBAJO del ultimo valor alto, no
+    repetirlo."""
+    obs = _observaciones_con_alza(factor_alza=4.0, horas_de_alza=6)
+    # las ultimas 4 lecturas (1h) caen en picada, simulando el colapso
+    # posterior al pico que describe el hallazgo #31
+    idx_ultimas = obs.index[-4:]
+    obs.loc[idx_ultimas, "demand"] = [1000.0, 700.0, 400.0, 150.0]
+    perfil = PerfilAdaptativo(obs)
+    ancla = obs["observed_at"].max()
+    objetivo = ancla + pd.Timedelta(minutes=15)
+    valor = perfil.extrapolacion_extrema("01000", ancla, objetivo)
+    assert valor is not None
+    assert valor < 150.0  # sigue bajando, no rebota al nivel del pico
 
 
 def _observaciones_con_pico_corrido(dias: int = 21, pasos: int = 3, dias_corridos: int = 2) -> pd.DataFrame:
