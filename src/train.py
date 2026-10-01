@@ -55,6 +55,7 @@ from lightgbm import LGBMRegressor
 from sklearn.ensemble import (
     ExtraTreesRegressor,
     GradientBoostingRegressor,
+    HistGradientBoostingRegressor,
     RandomForestRegressor,
     VotingRegressor,
 )
@@ -120,11 +121,24 @@ def build_candidates(observations: pd.DataFrame) -> dict:
         random_seed=20260918, verbose=0, allow_writing_files=False,
     )
 
+    # HistGradientBoosting (sklearn): una cuarta familia de boosting que no
+    # se habia probado todavia (solo CatBoost/LightGBM/XGBoost). Hiperparametros
+    # en la misma linea que los demas "afinados" (muchas iteraciones, learning
+    # rate bajo, profundidad moderada), no copiados de ningun lado - entrena y
+    # se compara en la misma validacion cruzada que el resto, con nuestros
+    # propios datos. Si no le gana al champion, queda como 'candidate' igual
+    # que cualquier otro intento.
+    hgb_afinado = dict(
+        max_iter=1200, max_depth=8, learning_rate=0.03, l2_regularization=1.0,
+        random_state=20260918,
+    )
+
     nuevos = {
         "catboost_sin_semanal": (CatBoostRegressor, sin_semanal, cat_del_barrido),
         "lgbm_extendido": (LGBMRegressor, extendido, lgbm_afinado),
         "catboost_extendido": (CatBoostRegressor, extendido, cat_afinado),
         "xgboost_extendido": (XGBRegressor, extendido, xgb_afinado),
+        "hgb_extendido": (HistGradientBoostingRegressor, extendido, hgb_afinado),
         # Promediar tres familias distintas de boosting compensa los errores
         # particulares de cada una. VotingRegressor se serializa con joblib sin
         # necesidad de clases propias, asi que el artefacto sigue cargandose
