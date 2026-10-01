@@ -461,3 +461,46 @@ puede quedar corto si el evento real resulta mas severo que la evidencia
 disponible en el momento de fijarlo. La senal para revisarlo de nuevo es la
 misma: el factor pegado EXACTO al tope en la mayoria de las estaciones a la
 vez, con el accuracy por ciclo (no el promedio movil de 24h) cayendo fuerte.
+
+---
+
+## 30. Subir el tope de nuevo NO habria arreglado la caida de T050000Z/T060000Z
+
+**Que creiamos:** con 09122 y 07105 pegadas exacto al tope de 10.0 en vivo
+(factor4 sin tope = 10.40 y 10.28) y el accuracy por ciclo desplomado a 37.4
+(T050000Z) y 48.8 (T060000Z) -muy por debajo del umbral de reentreno de
+85-, la hipotesis obvia era: el tope de nuevo se quedo corto, subirlo otra
+vez.
+
+**Que medimos:** se corrio exactamente el mismo backtest causal usado en
+#27/#29 pero contra el ANCLA REAL del ciclo T060000Z ya resuelto (06:00Z,
+no el instante actual). El factor sin tope en ESE ancla fue 2.34-3.30 para
+las tres estaciones peor libradas (09122/07105/05000) - muy por debajo
+incluso del tope viejo de 2.5, nunca cerca del tope vigente de 10.0. Se
+confirma reconstruyendo las predicciones completas con tope 10, 15, 20 y 30:
+el batch de predicciones sale BYTE IDENTICO en los cuatro casos (357.6,
+363.7, 352.3, 360.5 para 09122, etc.) mientras la demanda real resulto 2.2 a
+3.5 veces mas alta (805-1627 contra 352-481 predicho). Subir el tope no
+cambia nada porque el tope nunca se activo en ese ancla: el perfil ya tenia
+peso 1.0 (ALZA detectada, funcionando) y aun asi se quedo corto.
+
+Por separado, el chequeo en vivo (ancla 07:30Z, una hora despues) si muestra
+el factor pegado al tope para 09122/07105 (10.40/10.28), pero por apenas
+2-4% - nada parecido al 6.42x que motivo subir a 10.0 en #29.
+
+**Que implica:** la caida de estos dos ciclos NO fue un problema de tope.
+Fue que la demanda crecio mas rapido de lo que el perfil (ya con peso
+completo) puede seguir dentro de una sola hora - exactamente lo que el
+profesor describio como cambio de FORMA, no de escala (#28), y coincide con
+su propio dato de calibracion: incluso un modelo adaptativo que se
+reentrena solo saca 55-56% en las primeras horas de una revision de drift
+nueva, recuperando hacia 84% entre las horas 18-30. Es un limite real del
+mecanismo (correccion de escala sobre un patron recency-weighted), no un
+bug ni un parametro mal puesto. Evidencia de que ya esta sanando: de 12
+estaciones, 9 mejoraron su accuracy entre T050000Z y T060000Z (03000
+22.8->84.0, 09000 37.2->79.8, 10009 0.0->49.0, etc.); solo 09122/07105/05000
+siguieron empeorando ciclo a ciclo, el mismo trio que esta en la cola de la
+"ola" ya documentada en #29. Decision: NO se toca `LIMITES_FACTOR` de
+nuevo con esta evidencia - subirlo mas no habria cambiado el resultado y el
+riesgo de sobre-corregir en regimen sano es real. Se sigue vigilando con el
+mismo criterio de reapertura de #29.
