@@ -699,3 +699,17 @@ extremo de 2.5/0.4, quedandose con la mezcla normal que tampoco acerto. La
 gradual) que este primer corte no cubre completo. No se parcha mas esta
 noche sin validar primero - queda como evidencia para la proxima revision
 con la cabeza fresca, no para una reaccion apurada.
+
+**Segundo seguimiento (T050000Z, 21.6 de accuracy, el peor desde el fix):**
+cuatro estaciones en 0.0 exacto, cada una por una razon distinta - confirma
+que son variantes del mismo limite, no un bug nuevo. 09122 hizo una reversion
+en V dentro de la misma hora (880->108->661): la extrapolacion vio la caida
+hacia el ancla y proyecto que seguia bajando, dando 0.0 justo cuando rebotaba
+con fuerza - el caso mas dificil posible para una recta, un fondo de valle
+en vez de una tendencia sostenida. 05100/10009 son el patron gradual ya
+documentado (no cruzan el umbral extremo). 07107 disparo la extrapolacion
+pero el ruido de las ultimas 4 lecturas le dio pendiente positiva justo
+cuando la demanda real ya iba en picada. Ninguno es nuevo ni amerita otro
+cambio apurado a esta hora - la extrapolacion sigue siendo una mejora neta
+medida (hallazgo #34), simplemente no es magia contra cualquier forma de
+reversion.
