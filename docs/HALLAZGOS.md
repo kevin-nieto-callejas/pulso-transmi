@@ -549,3 +549,37 @@ exactamente la clase de "cambio de forma" que el profesor advirtio. La
 leccion para el proximo ajuste de este tipo: nunca asumir que dos eventos
 "simetricos" en como se detectan son simetricos en que tan bien se puede
 confiar en que continuen.
+
+---
+
+## 32. Un detector de "frenada aguda" (ultima lectura vs unos pasos atras) no ayuda - descartado
+
+**Que creiamos:** tras #31, el ciclo `T100000Z` resolvio con OTRAS cinco
+estaciones (02300/03000/06000/07111/09000) en 0.0 de accuracy exacto, mismo
+patron de pico-y-colapso. En 3 de las 5 la caida YA era visible en las 2-3
+lecturas previas al ancla de prediccion (ej. 02300: 1068->779->720, ya
+bajando antes de predecir) pero el factor de nivel (promedio de ventana) no
+lo reflejaba todavia - la hipotesis era agregar un chequeo rapido sobre la
+serie cruda (ultima lectura vs 1-2 pasos atras) para bajarle la voz al
+perfil apenas se vea una frenada, sin esperar a que la ventana completa lo
+note.
+
+**Que medimos:** implementado y probado contra los 5 ciclos resueltos del
+colapso (T050000Z-T100000Z, 12 estaciones, ground truth real), variando el
+umbral (0.50-0.60) y la ventana de comparacion (1-2 pasos = 15-30 min):
+accuracy agregado 27.78 (el 0.5 plano de #31, la base) contra 27.58-27.87
+en las variantes - diferencias dentro del ruido, ninguna mejora real.
+Aparentemente el detector dispara tanto en frenadas genuinas como en el
+vaiven normal de una subida real (que tambien tiene bajones de una lectura
+sin ser el pico), y lo que gana en unos casos lo pierde en otros.
+
+**Que implica:** no se aplica - se queda la correccion de #31 (peso 0.5
+plano) sin este refinamiento. Queda descartada esta forma puntual del
+chequeo para no reinvestigarla; una version mas elaborada (ej. pendiente
+sobre 3+ puntos en vez de un cociente de 2, o normalizada por la volatilidad
+tipica de cada estacion) podria funcionar distinto, pero no se probo por
+tiempo. El colapso tan rapido y profundo (miles a cientos en una hora) hace
+que CUALQUIER modelo anclado en el nivel reciente sobrestime fuerte en
+terminos relativos (WAPE se dispara contra un denominador chico) - puede que
+el limite real aqui no sea de deteccion sino de lo que es forecasteable con
+1 hora de anticipacion en este regimen.
