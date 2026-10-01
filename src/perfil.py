@@ -106,9 +106,25 @@ PESO_PERFIL_CIERRE = 1.0
 # puede dar un champion ciego al evento. Chequeado contra 15 anclas de regimen
 # sano (5-9 sep, 180 combinaciones estacion x hora): CERO disparos falsos,
 # porque el factor nunca se acerca a estos umbrales sin una subida real.
+#
+# Actualizacion 1-oct (hallazgo #31): a diferencia de un cierre (que una vez
+# empieza tiende a persistir), una subida de esta revision puede revertirse de
+# golpe. Caso real: 05000/07105/09122 subieron hasta 10x y luego el profesor
+# los hizo caer de 1627/868/1244 a 167/75/114 en apenas 2 horas (ciclo
+# T080000Z). Con peso=1.0 el perfil siguio extrapolando el pico (876-1252)
+# justo cuando la demanda real ya se habia desplomado -> 0.0 de accuracy en
+# las tres. El problema no es de deteccion tardia: al momento de predecir
+# (ancla 08:00) la caida todavia no habia ocurrido, era informacion del
+# futuro. Bajar el peso deja una fraccion de champion como colchon para
+# cuando la subida se revierte sin aviso. Backtest causal contra los 4
+# ciclos del colapso (T050000Z-T080000Z, 12 estaciones, ground truth real):
+# peso 1.0 -> 32.3 de accuracy; 0.7 -> 35.1; 0.5 -> 35.9 (mejor punto medido);
+# 0.3 -> 35.0; 0.0 (solo champion) -> 29.8, peor que cualquier mezcla. Se deja
+# en 0.5: conserva la mayor parte de la ventaja de #28 en una subida genuina
+# y limita el dano cuando se revierte sin aviso.
 UMBRAL_ALZA_CORTO = 1.30
 UMBRAL_ALZA_LARGO = 1.20
-PESO_PERFIL_ALZA = 1.0
+PESO_PERFIL_ALZA = 0.5
 
 # Peso del perfil cuando hay un desfase confirmado. El champion sigue anclado a
 # la hora vieja del pico: con el peak_shift la rampa de la manana llega ~45 min

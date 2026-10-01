@@ -15,3 +15,5 @@ data/
 mlflow.db
 mlruns/
 mlartifacts/
+.claude/worktrees/
+tmp/

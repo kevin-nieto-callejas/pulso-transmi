@@ -504,3 +504,48 @@ siguieron empeorando ciclo a ciclo, el mismo trio que esta en la cola de la
 nuevo con esta evidencia - subirlo mas no habria cambiado el resultado y el
 riesgo de sobre-corregir en regimen sano es real. Se sigue vigilando con el
 mismo criterio de reapertura de #29.
+
+---
+
+## 31. Una subida se puede revertir de golpe - darle peso 1.0 al perfil en ALZA sale caro
+
+**Que creiamos:** el peso completo (1.0) para el perfil durante una alza
+sostenida (#28) era simetrico al de un cierre y seguro por la misma razon:
+"el champion esta ciego al evento, confiar en el perfil es mejor".
+
+**Que medimos:** el ciclo `T080000Z` (01-oct) resolvio con 05000, 07105 y
+09122 en 0.0 de accuracy exacto - las tres en ALZA (peso=1.0). Revisando la
+demanda real: las tres venian bajando SUAVE hasta el ancla de prediccion
+(08:00) y luego se desplomaron de golpe en la hora siguiente (05000:
+1627->1616->1456->1310->1047->910 y DESPUES 910->534->393->225->167; 07105
+868->...->418->...->75; 09122 1244->...->541->...->114). El perfil, con peso
+completo, extrapolo el nivel alto (876-1252) justo en la hora en que la
+demanda real ya se habia hundido. No es un problema de deteccion tardia: al
+momento de predecir la caida todavia no habia pasado, no habia ninguna senal
+que la anticipara - es information del futuro. El champion solo (204-421)
+hubiera quedado mucho mas cerca de lo real (534-167) que el perfil.
+
+Backtest causal con los 4 ciclos del colapso completo (T050000Z a T080000Z,
+12 estaciones, 48 predicciones por corrida, ground truth real):
+
+| PESO_PERFIL_ALZA | accuracy agregado |
+|---|---|
+| 1.0 (el que estaba) | 32.3 |
+| 0.7 | 35.1 |
+| **0.5** | **35.9 (mejor)** |
+| 0.3 | 35.0 |
+| 0.0 (solo champion) | 29.8 |
+
+El perfil sigue aportando (0.0 es el peor de todos, confirma que #28 valia la
+pena), pero darle el 100% de la voz es peor que una mezcla. Se bajo
+`PESO_PERFIL_ALZA` de 1.0 a 0.5 (commit siguiente). Los 63 tests existentes
+siguen pasando (ninguno fija el valor numerico, solo comparan contra la
+constante).
+
+**Que implica:** una subida sostenida y un cierre NO son igual de seguros de
+cara al futuro. Un cierre tiende a persistir una vez empieza; una subida de
+esta revision de drift puede revertirse sin aviso en la hora siguiente -
+exactamente la clase de "cambio de forma" que el profesor advirtio. La
+leccion para el proximo ajuste de este tipo: nunca asumir que dos eventos
+"simetricos" en como se detectan son simetricos en que tan bien se puede
+confiar en que continuen.
