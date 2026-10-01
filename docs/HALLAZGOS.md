@@ -685,3 +685,17 @@ se confirma y se agudiza: no solo "cuanto peso darle" al perfil importa, sino
 que el perfil historico en si mismo deja de ser la herramienta correcta
 cuando el evento es tan extremo que ningun dia anterior se le parece - ahi
 lo que sirve es la tendencia de la ULTIMA hora, no un patron de semanas.
+
+**Seguimiento en vivo (mismo dia):** el primer ciclo real con esto activo
+(`T190000Z`) disparo la extrapolacion en 6 estaciones. Resultado mixto pero
+revelador: 07107 y 10009 se recuperaron a 90.3 y 91.5 (la extrapolacion
+funciono exactamente como se diseño); 05000/07105/09122 siguieron mal (5.1 a
+30.1) porque el colapso tambien revirtio DENTRO de la ventana extrapolada, un
+limite inherente de proyectar una recta a ciegas. Ademas aparecieron 06111 y
+09000 en 0.0 exacto SIN disparar el mecanismo: su caida fue mas GRADUAL (204
+-> 40 en 45 min, no un salto instantaneo) y el factor nunca cruzo el umbral
+extremo de 2.5/0.4, quedandose con la mezcla normal que tampoco acerto. La
+"ola" sigue moviendose y presentando variantes (colapso instantaneo vs
+gradual) que este primer corte no cubre completo. No se parcha mas esta
+noche sin validar primero - queda como evidencia para la proxima revision
+con la cabeza fresca, no para una reaccion apurada.
