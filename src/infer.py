@@ -240,8 +240,19 @@ def build_batch_predictions(
         # de la serie cruda (sin perfil historico) manda sola - probado que le
         # gana por 20+ puntos de accuracy en el colapso sin costar nada
         # perceptible en regimen sano (ver UMBRAL_EXTRAPOLACION_* en perfil.py).
-        valor_extremo = perfil.extrapolacion_extrema(station_id, anchor_at, target_at) if perfil is not None else None
-        if valor_extremo is not None:
+        # Primero, la onda corta (hallazgo #35): si la estacion viene repitiendo
+        # un ciclo de 2-6 h con acierto retrospectivo >= 80% en las ultimas
+        # 12 h, se copia lo que paso uno y dos periodos antes del target. Es lo
+        # que mas acierta en el drift actual (91% vs ~40%) y nunca se activa en
+        # regimen normal.
+        valor_periodico = perfil.prediccion_periodica(station_id, anchor_at, target_at) if perfil is not None else None
+        valor_extremo = None
+        if valor_periodico is None and perfil is not None:
+            valor_extremo = perfil.extrapolacion_extrema(station_id, anchor_at, target_at)
+        if valor_periodico is not None:
+            print(f"  {station_id} +{horizon_minutes:2d}min: champion={value:8.1f}  ONDA CORTA -> {valor_periodico:8.1f}")
+            value = valor_periodico
+        elif valor_extremo is not None:
             print(f"  {station_id} +{horizon_minutes:2d}min: champion={value:8.1f}  EXTRAPOLACION EXTREMA -> {valor_extremo:8.1f}")
             value = valor_extremo
         # Segunda opinion: el perfil adaptativo reacciona a un cambio de

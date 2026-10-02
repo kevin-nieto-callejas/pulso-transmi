@@ -713,3 +713,43 @@ cuando la demanda real ya iba en picada. Ninguno es nuevo ni amerita otro
 cambio apurado a esta hora - la extrapolacion sigue siendo una mejora neta
 medida (hallazgo #34), simplemente no es magia contra cualquier forma de
 reversion.
+
+---
+
+## 35. El drift de la revision 3 es una ONDA de ~4 horas - naive estacional corto: ultimos 12 ciclos 41 -> 92
+
+**Que creiamos:** que los colapsos y rebotes de #31-#34 eran eventos sueltos
+(picos que se revierten, reversiones en V) dificiles de anticipar con 1 h de
+horizonte, y que la palanca era la capa adaptativa o reentrenar.
+
+**Que medimos:**
+- Barrido de los 17 parametros de la capa adaptativa (descenso coordenado
+  sobre 161 ciclos, validacion en los 70 mas recientes): la mejor combinacion
+  en train EMPEORA en validacion (69.1 -> 67.8). Sobreajuste; la capa no es la
+  palanca (el mejor cambio individual da +0.8).
+- EDA del 18/19-sep: la curva diaria desaparece y en su lugar hay una onda
+  periodica (2 h alta, 2 h baja). Autocorrelacion maxima en el lag de 16 pasos
+  (4 h) en 10 de 12 estaciones (r = 0.65-0.88); 02300 y 07107 a 8 h. El naive
+  "lo que paso hace 4 h" acierta 91.2% el 19-sep (63% el 18-sep, mientras la
+  onda se establecia) y 9% en regimen normal. Ningun lag del champion (15 min,
+  1 h, 1 d, 1 sem) puede verla, y el perfil diario tampoco.
+- Selector: por estacion y ciclo, con datos <= ancla, el periodo P en [2 h, 6 h]
+  que mejor habria acertado en las ultimas 12 h; si su acierto retrospectivo
+  >= 80%, prediccion = promedio de target-P y target-2P. Backtest sobre los 231
+  ciclos oficiales resueltos, metrica oficial:
+
+| | todo | regimen normal | drift | ultimos 12 ciclos |
+|---|---|---|---|---|
+| pipeline actual | 80.14 | 85.25 | 59.04 | 41.01 |
+| + onda corta | **83.29** | **85.25** | **75.20** | **91.78** |
+
+  Cero regresion en regimen normal (el detector nunca se activa ahi). Periodos
+  hasta 12 h o ventanas de 4 h si daban falsas activaciones en normal (-1 a -5
+  puntos) - por eso P cabe al menos 2 veces en la ventana. Reproducido
+  exacto con el codigo de produccion (no solo con el script del experimento).
+
+**Que implica:** `PerfilAdaptativo.prediccion_periodica()` se consulta ANTES de
+la extrapolacion extrema y de la mezcla champion+perfil en `infer.py`. 2 tests
+nuevos (69/69). La leccion: ante un drift, mirar la FORMA de la serie (EDA,
+autocorrelacion) antes de tunear modelos - toda la noche se ataco el sintoma
+(colapsos sueltos) en vez de la estructura (una onda regular).

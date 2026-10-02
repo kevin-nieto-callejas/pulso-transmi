@@ -155,6 +155,31 @@ UMBRAL_EXTRAPOLACION_ALZA = 2.5
 UMBRAL_EXTRAPOLACION_CIERRE = 0.4
 PASOS_EXTRAPOLACION = 4  # 1 hora de historia (4 x 15 min)
 
+# Periodicidad corta (hallazgo #35). La revision 3 de drift no es un cambio de
+# nivel ni de fase: convierte la curva diaria en una ONDA de ~4 horas (2 h alta,
+# 2 h baja) en 10 de 12 estaciones (autocorrelacion 0.65-0.88 en el lag de 16
+# pasos; 02300 y 07107 a 8 h). Los "picos que se revierten de golpe" de #31-#34
+# eran esta onda. Ni el champion (lags 15 min/1 h/1 d/1 sem) ni el perfil diario
+# la pueden ver. El naive estacional "lo que paso hace un periodo" acierta 91%
+# el 19-sep, contra ~40% del pipeline.
+#
+# Por estacion y en cada ciclo, con datos <= ancla: se busca el periodo P entre
+# 2 h y 6 h que mejor habria acertado en las ultimas 12 h (naive retrospectivo).
+# Si ese acierto supera el umbral, se predice el promedio de la demanda en
+# target-P y target-2P; si no, sigue el pipeline de siempre. P <= 6 h cabe al
+# menos dos veces en la ventana de 12 h: con periodos mas largos el detector
+# encontraba coincidencias espurias en regimen normal.
+#
+# Backtest sobre los 231 ciclos oficiales resueltos (metrica oficial):
+# todo 80.14 -> 83.29, regimen normal 85.25 -> 85.25 (identico: nunca se
+# activa ahi), drift 59.04 -> 75.20, ultimos 12 ciclos 41.01 -> 91.78. Umbral
+# 70 da casi lo mismo en drift pero cuesta -0.8 en normal; 80 es el corte.
+PERIODO_MIN = 8          # 2 h
+PERIODO_MAX = 24         # 6 h
+VENTANA_PERIODO = 48     # 12 h de evidencia retrospectiva
+UMBRAL_PERIODO = 80.0    # accuracy retrospectiva minima para confiar en la onda
+CICLOS_PERIODO = 2       # promedia target-P y target-2P
+
 # Peso del perfil cuando hay un desfase confirmado. El champion sigue anclado a
 # la hora vieja del pico: con el peak_shift la rampa de la manana llega ~45 min
 # tarde y el champion la predice antes, sobrepredice las horas previas y
@@ -351,6 +376,46 @@ class PerfilAdaptativo:
         if not 0 <= paso < perfil.size or np.isnan(perfil[paso]):
             return None
         return float(perfil[paso] * self.factor_de_nivel(estacion, ancla_at, desfase=desfase))
+
+    def periodo_corto(self, estacion: str, ancla_at: pd.Timestamp) -> tuple[int | None, float]:
+        """(P, acierto) del periodo entre PERIODO_MIN y PERIODO_MAX pasos que
+        mejor habria predicho las ultimas VENTANA_PERIODO lecturas copiando la
+        de P pasos antes. Solo mira datos <= `ancla_at`."""
+        serie = self._serie.get(str(estacion))
+        if serie is None:
+            return None, -1.0
+        fin = self._paso(ancla_at) + 1
+        ini = fin - VENTANA_PERIODO
+        if ini - PERIODO_MAX < 0 or fin > serie.size:
+            return None, -1.0
+        reales = serie[ini:fin]
+        mejor, acierto = None, -1.0
+        for p in range(PERIODO_MIN, PERIODO_MAX + 1):
+            previos = serie[ini - p:fin - p]
+            ok = ~np.isnan(reales) & ~np.isnan(previos)
+            if ok.sum() < VENTANA_PERIODO // 2 or reales[ok].sum() <= 0:
+                continue
+            a = 100 * (1 - np.abs(previos[ok] - reales[ok]).sum() / reales[ok].sum())
+            if a > acierto:
+                mejor, acierto = p, float(a)
+        return mejor, acierto
+
+    def prediccion_periodica(
+        self, estacion: str, ancla_at: pd.Timestamp, target_at: pd.Timestamp,
+    ) -> float | None:
+        """Naive estacional con el periodo corto detectado, o `None` si no hay
+        una onda confiable (quien llama sigue con el pipeline normal). Ver el
+        comentario de PERIODO_* arriba."""
+        p, acierto = self.periodo_corto(estacion, ancla_at)
+        if p is None or acierto < UMBRAL_PERIODO:
+            return None
+        serie = self._serie[str(estacion)]
+        tope = self._paso(ancla_at)
+        paso = self._paso(target_at)
+        valores = [serie[paso - q * p] for q in range(1, CICLOS_PERIODO + 1)
+                   if 0 <= paso - q * p <= tope]
+        valores = [v for v in valores if not np.isnan(v)]
+        return float(np.mean(valores)) if valores else None
 
     def extrapolacion_extrema(
         self, estacion: str, ancla_at: pd.Timestamp, target_at: pd.Timestamp,

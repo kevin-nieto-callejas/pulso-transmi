@@ -224,6 +224,37 @@ def test_un_cierre_extremo_activa_la_extrapolacion():
     assert perfil.extrapolacion_extrema("01000", ancla, objetivo) is not None
 
 
+def _observaciones_con_onda(dias: int = 21, horas_onda: int = 24, periodo_pasos: int = 16) -> pd.DataFrame:
+    """Como `_observaciones`, pero las ultimas `horas_onda` horas son una onda
+    cuadrada de `periodo_pasos` (alta la mitad, baja la otra mitad): la forma
+    que trae la revision 3 de drift (hallazgo #35)."""
+    obs = _observaciones(dias=dias).reset_index(drop=True)
+    corte = obs["observed_at"].max() - pd.Timedelta(hours=horas_onda)
+    tramo = obs.index[obs["observed_at"] > corte]
+    fase = np.arange(len(tramo)) % periodo_pasos
+    obs.loc[tramo, "demand"] = np.where(fase < periodo_pasos // 2, 1000.0, 200.0)
+    return obs
+
+
+def test_una_onda_de_4_horas_se_detecta_y_se_copia():
+    obs = _observaciones_con_onda()
+    perfil = PerfilAdaptativo(obs)
+    ancla = obs["observed_at"].max()
+    p, acierto = perfil.periodo_corto("01000", ancla)
+    assert p == 16 and acierto > 99
+    for minutos in (15, 30, 45, 60):
+        objetivo = ancla + pd.Timedelta(minutes=minutos)
+        esperado = obs.loc[obs["observed_at"] == objetivo - pd.Timedelta(hours=4), "demand"].iloc[0]
+        assert perfil.prediccion_periodica("01000", ancla, objetivo) == pytest.approx(esperado)
+
+
+def test_la_curva_diaria_normal_no_activa_la_onda_corta():
+    obs = _observaciones()
+    perfil = PerfilAdaptativo(obs)
+    ancla = obs["observed_at"].max()
+    assert perfil.prediccion_periodica("01000", ancla, ancla + pd.Timedelta(minutes=15)) is None
+
+
 def test_la_extrapolacion_extrema_sigue_la_tendencia_reciente_no_el_pico():
     """La extrapolacion debe seguir la caida reciente, no el nivel alto de
     hace unas horas: con una subida que ya esta revirtiendo en las ultimas
