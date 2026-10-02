@@ -90,6 +90,39 @@ EXTENDED_FEATURE_COLUMNS = (
 )
 
 
+CONTEXT_COLUMNS = ["rain_mm", "rain_forecast", "temperature_c", "temperature_forecast", "event_intensity"]
+
+
+def rellenar_contexto(context: pd.DataFrame, hasta: pd.Timestamp) -> pd.DataFrame:
+    """Extiende `context` hasta `hasta` con la mediana de cada franja de 15 min
+    (hora de Bogota) de las lecturas reales.
+
+    La API publica contexto solo hasta el 2026-09-08 23:45 (Bogota); el stream
+    de la competencia no lo trae. Sin esto, `train.py` descartaba toda fila
+    posterior por NaN (el reentreno nunca vio el drift: siempre los mismos
+    datos, siempre 86.74) y en produccion el champion recibia las 5 columnas
+    vacias, algo que nunca vio al entrenar. Entrenamiento e inferencia pasan
+    por aqui y quedan consistentes. Medido sobre 231 ciclos: +0.23 de accuracy,
+    +0.24 en regimen normal, +0.16 en drift, ningun segmento peor (hallazgo #36).
+    """
+    if context.empty:
+        return context
+    ctx = context.copy()
+    ctx["observed_at"] = pd.to_datetime(ctx["observed_at"], utc=True)
+    ultimo = ctx["observed_at"].max()
+    hasta = pd.Timestamp(hasta)
+    hasta = hasta.tz_localize("UTC") if hasta.tzinfo is None else hasta.tz_convert("UTC")
+    if hasta <= ultimo:
+        return ctx
+    local = ctx["observed_at"].dt.tz_convert(ZONA_BOGOTA)
+    clima = ctx.groupby([local.dt.hour, local.dt.minute])[CONTEXT_COLUMNS].median()
+    nuevos = pd.date_range(ultimo + pd.Timedelta(minutes=15), hasta.floor("15min"), freq="15min")
+    nl = nuevos.tz_convert(ZONA_BOGOTA)
+    relleno = clima.reindex(list(zip(nl.hour, nl.minute))).reset_index(drop=True)
+    relleno.insert(0, "observed_at", nuevos)
+    return pd.concat([ctx, relleno], ignore_index=True)
+
+
 def build_feature_frame(observations: pd.DataFrame, context: pd.DataFrame) -> pd.DataFrame:
     observations = observations.copy()
     context = context.copy()

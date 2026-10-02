@@ -39,6 +39,7 @@ from features import (  # noqa: E402
     HORIZONS_MINUTES,
     aplicar_features_de_target,
     build_feature_frame,
+    rellenar_contexto,
 )
 from perfil import DIAS_DE_HISTORIA, PESO_PERFIL_CIERRE, PerfilAdaptativo, mezclar  # noqa: E402
 from predict import get_champion, load_model_from_storage  # noqa: E402
@@ -131,10 +132,14 @@ def build_anchor_features(client: httpx.Client, supabase_url: str, data_cutoff: 
             "order": "station_id,observed_at",
         },
     )
+    # Todo el contexto, no solo la ventana: la API dejo de publicarlo el
+    # 2026-09-08, y `rellenar_contexto` necesita las lecturas reales para
+    # sacar la mediana por franja (en unos dias la ventana de 28 d ya no
+    # tendria ninguna). Son ~4.3k filas.
     context_rows = fetch_all_rows(
         client, f"{supabase_url}/rest/v1/context_readings", headers,
         {
-            "observed_at": [f"gte.{window_start}", f"lte.{data_cutoff.isoformat()}"],
+            "observed_at": f"lte.{data_cutoff.isoformat()}",
             # rain_forecast/temperature_forecast son features del modelo: si no
             # se piden aqui, build_feature_frame no puede calcularlas y se
             # mandaban en 0. Pedir de menos en un `select` no falla, solo
@@ -152,8 +157,9 @@ def build_anchor_features(client: httpx.Client, supabase_url: str, data_cutoff: 
         raise RuntimeError(f"Supabase no devolvio observaciones entre {window_start} y {data_cutoff}")
     observations["station_id"] = observations["station_id"].astype("string")
     observations["observed_at"] = pd.to_datetime(observations["observed_at"])
-    context = pd.DataFrame(context_rows)
-    context["observed_at"] = pd.to_datetime(context["observed_at"])
+    context = rellenar_contexto(pd.DataFrame(context_rows), data_cutoff)
+    context["observed_at"] = pd.to_datetime(context["observed_at"], utc=True)
+    context = context[context["observed_at"] >= pd.Timestamp(window_start)]
 
     # El champion tambien recibe la ventana larga. `slot_mean` es un promedio
     # ACUMULADO de las semanas previas de cada franja: en entrenamiento junta
@@ -232,43 +238,14 @@ def build_batch_predictions(
             row[col] = 0  # dummies de otras estaciones: 0 por definicion de one-hot
 
         value = float(model.predict(row[feature_columns])[0])
-
-        # Tercera opinion, antes que nada: en un pico que se revierte de golpe
-        # (hallazgo #31/#34) hasta el perfil con peso reducido sigue
-        # extrapolando el nivel alto justo cuando la demanda real ya se
-        # hundio. Si el factor esta en zona EXTREMA, la extrapolacion lineal
-        # de la serie cruda (sin perfil historico) manda sola - probado que le
-        # gana por 20+ puntos de accuracy en el colapso sin costar nada
-        # perceptible en regimen sano (ver UMBRAL_EXTRAPOLACION_* en perfil.py).
-        # Primero, la onda corta (hallazgo #35): si la estacion viene repitiendo
-        # un ciclo de 2-6 h con acierto retrospectivo >= 80% en las ultimas
-        # 12 h, se copia lo que paso uno y dos periodos antes del target. Es lo
-        # que mas acierta en el drift actual (91% vs ~40%) y nunca se activa en
-        # regimen normal.
-        valor_periodico = perfil.prediccion_periodica(station_id, anchor_at, target_at) if perfil is not None else None
-        valor_extremo = None
-        if valor_periodico is None and perfil is not None:
-            valor_extremo = perfil.extrapolacion_extrema(station_id, anchor_at, target_at)
-        if valor_periodico is not None:
-            print(f"  {station_id} +{horizon_minutes:2d}min: champion={value:8.1f}  ONDA CORTA -> {valor_periodico:8.1f}")
-            value = valor_periodico
-        elif valor_extremo is not None:
-            print(f"  {station_id} +{horizon_minutes:2d}min: champion={value:8.1f}  EXTRAPOLACION EXTREMA -> {valor_extremo:8.1f}")
-            value = valor_extremo
-        # Segunda opinion: el perfil adaptativo reacciona a un cambio de
-        # regimen en la hora siguiente, mientras el champion sigue creyendo
-        # en el regimen con el que se entreno. Si no tiene opinion para esta
-        # franja, `mezclar` devuelve el champion intacto.
-        elif perfil is not None:
-            valor_perfil = perfil.predecir(station_id, target_at, anchor_at)
-            peso = perfil.peso_de_mezcla(station_id, anchor_at)
-            if valor_perfil is not None:
-                aviso = "  CIERRE: manda el perfil" if peso >= PESO_PERFIL_CIERRE else ""
-                print(
-                    f"  {station_id} +{horizon_minutes:2d}min: champion={value:8.1f}  "
-                    f"perfil={valor_perfil:8.1f}  ->  {mezclar(value, valor_perfil, peso):8.1f}{aviso}"
-                )
-            value = mezclar(value, valor_perfil, peso)
+        if perfil is not None:
+            # La capa adaptativa es una mejora, no un requisito: un dato raro
+            # en UNA estacion no puede tumbar la entrega de las 12. Ante
+            # cualquier error, ese target sale con el champion solo.
+            try:
+                value = _capa_adaptativa(perfil, station_id, anchor_at, target_at, horizon_minutes, value)
+            except Exception as exc:
+                print(f"  AVISO {station_id} +{horizon_minutes}min: capa adaptativa fallo ({type(exc).__name__}: {exc}); va el champion solo.")
 
         value = max(0.0, min(value, 100000.0))
         predictions.append({
@@ -277,6 +254,43 @@ def build_batch_predictions(
             "value": round(value, 2),
         })
     return predictions
+
+
+def _capa_adaptativa(perfil: PerfilAdaptativo, station_id: str, anchor_at: pd.Timestamp,
+                     target_at: pd.Timestamp, horizon_minutes: int, value: float) -> float:
+    """Corrige la prediccion del champion con lo que acaba de pasar. Orden de
+    prioridad: onda corta > extrapolacion extrema > mezcla champion+perfil."""
+    # Primero, la onda corta (hallazgo #35): si la estacion viene repitiendo un
+    # ciclo de 2-6 h con acierto retrospectivo >= 80% en las ultimas 12 h, se
+    # copia lo que paso uno y dos periodos antes del target. Es lo que mas
+    # acierta en el drift actual (91% vs ~40%) y nunca se activa en regimen
+    # normal.
+    valor_periodico = perfil.prediccion_periodica(station_id, anchor_at, target_at)
+    if valor_periodico is not None:
+        print(f"  {station_id} +{horizon_minutes:2d}min: champion={value:8.1f}  ONDA CORTA -> {valor_periodico:8.1f}")
+        return valor_periodico
+
+    # Despues, un pico que se revierte de golpe (hallazgo #31/#34): si el factor
+    # esta en zona EXTREMA, la extrapolacion lineal de la serie cruda manda sola
+    # (ver UMBRAL_EXTRAPOLACION_* en perfil.py).
+    valor_extremo = perfil.extrapolacion_extrema(station_id, anchor_at, target_at)
+    if valor_extremo is not None:
+        print(f"  {station_id} +{horizon_minutes:2d}min: champion={value:8.1f}  EXTRAPOLACION EXTREMA -> {valor_extremo:8.1f}")
+        return valor_extremo
+
+    # Si no, la mezcla de siempre: el perfil reacciona a un cambio de regimen en
+    # la hora siguiente, mientras el champion sigue creyendo en el regimen con
+    # el que se entreno. Si el perfil no tiene opinion para esta franja,
+    # `mezclar` devuelve el champion intacto.
+    valor_perfil = perfil.predecir(station_id, target_at, anchor_at)
+    peso = perfil.peso_de_mezcla(station_id, anchor_at)
+    if valor_perfil is not None:
+        aviso = "  CIERRE: manda el perfil" if peso >= PESO_PERFIL_CIERRE else ""
+        print(
+            f"  {station_id} +{horizon_minutes:2d}min: champion={value:8.1f}  "
+            f"perfil={valor_perfil:8.1f}  ->  {mezclar(value, valor_perfil, peso):8.1f}{aviso}"
+        )
+    return mezclar(value, valor_perfil, peso)
 
 
 def make_idempotency_key(cycle_id: str, version_id: str) -> str:

@@ -75,6 +75,7 @@ from features import (  # noqa: E402
     MULTI_HORIZON_NO_WEEKLY_LAG_FEATURE_COLUMNS,
     build_feature_frame,
     explode_horizons,
+    rellenar_contexto,
     station_dummy_columns,
     wape_accuracy,
 )
@@ -205,6 +206,10 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
         DATA / "observations.csv", dtype={"station_id": "string"}, parse_dates=["observed_at"]
     )
     context = pd.read_csv(DATA / "context.csv", parse_dates=["observed_at"])
+    # Sin esto, todas las filas posteriores al 2026-09-08 (fin del contexto en
+    # la API) se descartaban por NaN y el reentreno nunca veia el drift
+    # (hallazgo #36). Mismo relleno que usa la inferencia.
+    context = rellenar_contexto(context, observations["observed_at"].max())
     return observations, context
 
 

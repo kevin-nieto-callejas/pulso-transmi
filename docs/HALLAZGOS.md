@@ -753,3 +753,31 @@ la extrapolacion extrema y de la mezcla champion+perfil en `infer.py`. 2 tests
 nuevos (69/69). La leccion: ante un drift, mirar la FORMA de la serie (EDA,
 autocorrelacion) antes de tunear modelos - toda la noche se ataco el sintoma
 (colapsos sueltos) en vez de la estructura (una onda regular).
+
+---
+
+## 36. El contexto se acabo el 8-sep: el reentreno nunca vio el drift y el champion recibia NaN
+
+**Que creiamos:** que cada reentreno automatico aprendia de los datos nuevos.
+Daba 86.74 identico corrida tras corrida, y se leia como "el champion sigue
+siendo el mejor".
+
+**Que medimos:** la API publica `context` (lluvia, temperatura, pronosticos,
+eventos) solo hasta el 2026-09-08 23:45 Bogota; el stream de la competencia
+no lo trae y no hay otro endpoint. `train.py` hace `dropna` sobre las
+features, asi que toda fila posterior se descartaba: el frame de
+entrenamiento terminaba el 8-sep sin importar cuantos datos hubiera (100,032
+filas fijas en el experimento de reentreno rodante, en cualquier corte). Y en
+produccion, desde el 9-sep el champion recibia las 5 columnas en NaN, algo
+que nunca vio al entrenar.
+
+Relleno con la mediana de cada franja de 15 min de las lecturas reales,
+recalculando las predicciones del champion en los 231 ciclos: capa completa
+83.29 -> 83.52 (normal +0.24, drift +0.16, ningun segmento peor).
+
+**Que implica:** `features.rellenar_contexto()` lo usan inferencia (que ahora
+trae TODO el contexto, no solo la ventana de 28 d, para que la mediana no se
+quede sin datos en unos dias) y `train.py`. El reentreno ya puede ver el
+drift. De paso, la capa adaptativa en `infer.py` quedo envuelta en
+try/except por target: un error en UNA estacion entrega esa con el champion
+solo, en vez de tumbar las 12.

@@ -347,3 +347,20 @@ def test_con_un_desfase_confirmado_el_perfil_pesa_mas():
     assert perfil.desfase("01000", ancla) == 3
     assert perfil.peso_de_mezcla("01000", ancla) == PESO_PERFIL_CON_DESFASE
     assert PESO_PERFIL_CON_DESFASE > MEZCLA_PERFIL
+
+
+def test_rellenar_contexto_extiende_con_la_mediana_de_cada_franja():
+    from features import CONTEXT_COLUMNS, rellenar_contexto
+    t = pd.date_range("2026-09-01 00:00", "2026-09-08 23:45", freq="15min", tz=ZONA)
+    ctx = pd.DataFrame({"observed_at": t})
+    for c in CONTEXT_COLUMNS:
+        ctx[c] = t.hour.astype(float)  # cada franja vale su hora
+    hasta = pd.Timestamp("2026-09-10 12:00", tz=ZONA)
+    out = rellenar_contexto(ctx, hasta)
+    assert out["observed_at"].max() == hasta.tz_convert("UTC")
+    assert out[CONTEXT_COLUMNS].isna().sum().sum() == 0
+    nuevo = out[out["observed_at"] > t.max()].set_index("observed_at")
+    horas = nuevo.index.tz_convert(ZONA).hour
+    assert (nuevo["temperature_c"].to_numpy() == horas.to_numpy()).all()
+    # y no toca lo que ya existia, ni rellena si no hace falta
+    assert len(rellenar_contexto(ctx, t.max())) == len(ctx)
