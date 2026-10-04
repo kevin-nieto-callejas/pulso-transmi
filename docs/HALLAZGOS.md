@@ -796,7 +796,9 @@ observacion que tenia, tres horas atras. Otra falla sin error visible.
 
 **Impacto medido:** el ciclo `20260920T130000Z` (entregado 4-oct 00:02 UTC)
 saco **19.84** de accuracy media por estacion, con datos de 3 h atras y la onda
-corta vieja todavia activa (ver #38). El `15:00Z` se entrego igual de ciego.
+corta vieja todavia activa (ver #38). El `15:00Z` (01:57 UTC, por `inference.yml`,
+antes de que se subiera el arreglo) salio igual de ciego: ancla en 12:00Z, 180 min
+atras del corte, con la onda corta.
 
 **Por que no nos enteramos antes:** `contract-watch.yml` SI existia para esto,
 pero estaba en rojo sin parar desde el 28-sep 23:18 UTC. El `expected.json`
@@ -810,8 +812,10 @@ solo de `SubmissionInput` y `PredictionInput`.
 los `missing` (un faltante no es cero) y convierte el texto a entero. Se
 re-ingirieron las 3 h perdidas. `contract/expected.json` paso a 0.9.0 y al
 commit `a5f9d026` del profesor: la alarma vuelve a verde y vuelve a significar
-algo. Primera entrega recuperada con datos frescos: ciclo `20260920T150000Z`
-(4-oct 01:57 UTC).
+algo. Primera entrega recuperada: ciclo `20260920T160000Z`, aceptada el 4-oct a
+las 02:50:10 UTC por el relay, 30 s despues de abrir. Las 12 estaciones con
+ancla en el corte (16:00Z) y predicciones de persistencia + tendencia,
+verificado contra `predictions` y `observations`.
 
 **Leccion:** una alarma que ya esta en rojo no avisa de nada nuevo. El
 vigilante sirve solo si se vuelve a poner en verde cada vez que se revisa un

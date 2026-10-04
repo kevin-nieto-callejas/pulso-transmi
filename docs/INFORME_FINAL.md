@@ -70,9 +70,9 @@ los hallazgos #37 a #39 y en la bitácora. En resumen:
 |---|---|
 | **Cambio 1: fuente** | Contrato de observación v2: `measurement.value` en texto (o `null` con `quality=missing`) en lugar de `demand`. La ingesta cayó con `KeyError` y la inferencia siguió entregando con datos de 3 h atrás, sin ningún error visible. |
 | **Cambio 2: demanda** | Revisión 4 del drift: desaparece la onda de 4 h y aparecen tendencias lentas. La onda corta seguía activa y acertaba cerca de 0. |
-| **Impacto** | Ciclo `20260920T130000Z`: 19.84 de accuracy. Ciclos `12:00Z` y `14:00Z` sin entregar, porque el disparador puntual vivía en el PC y el PC estaba apagado. |
+| **Impacto** | Ciclo `20260920T130000Z`: 19.84 de accuracy; el `150000Z` también salió con datos 3 h atrás. Ciclos `12:00Z` y `14:00Z` sin entregar, porque el disparador puntual vivía en el PC y el PC estaba apagado. |
 | **Reparación** | Ingesta v1+v2 que omite los faltantes (no son cero), re-ingesta de las 3 h perdidas; la onda corta exige acierto en las últimas 2 h y entra persistencia + ½ tendencia; `relay.yml` entrega desde la nube; `contract-watch` vuelve a verde con 0.9.0. |
-| **Primera entrega recuperada** | Ciclo `20260920T150000Z`, 4-oct 01:57 UTC, con datos frescos. |
+| **Primera entrega recuperada** | Ciclo `20260920T160000Z`, 4-oct 02:50 UTC: el relay la entregó 30 s después de abrir, con datos al corte. |
 | **Evidencia de la adaptación** | Backtest causal rev 4: mezcla champion+perfil 64.0, persistencia 72.1, persistencia+½ tendencia 72.6; pipeline completo desde las 13:15 virtuales: 78-83. |
 | **Cobertura y accuracy** | 4-oct 02:22 UTC: 186/188 ciclos (98.9%), acumulado 76.26, puesto 6 de 32. |
 

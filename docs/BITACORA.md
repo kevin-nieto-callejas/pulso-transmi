@@ -430,11 +430,13 @@ y el **contrato de observación v2** (API 0.9.0). Lo que pasó, en orden:
 | 3-oct ~22:50 | Reapertura. El stream trae `measurement.value` en vez de `demand` y `ingest.py` cae con `KeyError`. Nadie lo nota: `contract-watch` llevaba 5 días en rojo por un `expected.json` sin commitear (hallazgo #37). |
 | 3-oct, noche | El PC que disparaba las entregas puntuales se apaga y se pierden los ciclos virtuales `12:00Z` y `14:00Z` (hallazgo #39). |
 | 4-oct 00:02 | Ciclo `13:00Z` entregado con datos de 3 h atrás y la onda corta vieja: **19.84** de accuracy. |
-| 4-oct ~01:50 | Diagnóstico. `2dcd8aa`: ingesta v1+v2 y re-ingesta de las 3 h perdidas. |
-| 4-oct 01:57 | Ciclo `15:00Z`: **primera entrega recuperada** con datos frescos. |
-| 4-oct ~02:00 | `dad2211`: `relay.yml`, entregas en la nube sin PC. `18d5f68`: revisión 4 del drift; la onda corta se apaga sola y entra persistencia + ½ tendencia (hallazgo #38). |
+| 4-oct 01:57 | Ciclo `15:00Z` entregado todavía ciego: ancla 180 min atrás y onda vieja. |
+| 4-oct 01:58 | `dad2211`: `relay.yml`, entregas en la nube sin PC. |
+| 4-oct 02:03 | `2dcd8aa`: ingesta v1+v2 y re-ingesta de las 3 h perdidas. |
+| 4-oct 02:16 | `18d5f68`: revisión 4 del drift; la onda corta se apaga sola y entra persistencia + ½ tendencia (hallazgo #38). |
 | 4-oct 02:17 | Verificado que el relay se relanza solo. |
-| 4-oct ~02:30 | `contract/expected.json` → 0.9.0 (alarma en verde de nuevo) y `evaluate.py` dentro del relay. |
+| 4-oct 02:28 | `contract/expected.json` → 0.9.0 (contract-watch en verde por primera vez desde el 28-sep) y `evaluate.py` dentro del relay. |
+| 4-oct 02:50 | Ciclo `16:00Z`: **primera entrega recuperada**. El relay la entregó 30 s después de abrir, con datos al corte y persistencia + tendencia. |
 
 Leaderboard oficial a las 02:22 UTC del 4-oct: **puesto 6 de 32**, accuracy
 acumulada **76.26**, cobertura **98.9%** (186 de 188 ciclos). El 5º está 0.31
