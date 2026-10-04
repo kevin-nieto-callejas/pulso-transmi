@@ -31,6 +31,7 @@ import uuid
 from pathlib import Path
 
 import httpx
+import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -305,6 +306,31 @@ def _capa_adaptativa(perfil: PerfilAdaptativo, station_id: str, anchor_at: pd.Ti
     return mezclar(value, valor_perfil, peso)
 
 
+def aplicar_correccion(predictions: list[dict], observaciones: pd.DataFrame, data_cutoff: pd.Timestamp) -> list[dict]:
+    """Corrige la capa adaptativa con el LightGBM de `correccion.py` (hallazgo
+    #42). Es una mejora, no un requisito: ante cualquier error o sin datos
+    suficientes, el batch sale como estaba."""
+    try:
+        from correccion import corregir
+        corregidas = corregir(observaciones, data_cutoff)
+    except Exception as exc:
+        print(f"AVISO: correccion no disponible ({type(exc).__name__}: {exc}). Va la capa adaptativa sola.")
+        return predictions
+    if not corregidas:
+        print("Correccion: todavia no hay suficientes cortes de la revision 4; va la capa adaptativa sola.")
+        return predictions
+    cambiadas = 0
+    for p in predictions:
+        pasos = round((pd.Timestamp(p["target_at"]) - data_cutoff).total_seconds() / 900)
+        valor = corregidas.get((p["station_id"], pasos))
+        if valor is not None and np.isfinite(valor):
+            print(f"  {p['station_id']} +{pasos * 15:2d}min: adaptativa={p['value']:8.1f}  CORREGIDA -> {valor:8.1f}")
+            p["value"] = round(max(0.0, min(valor, 100000.0)), 2)
+            cambiadas += 1
+    print(f"Correccion LightGBM aplicada a {cambiadas}/{len(predictions)} predicciones.")
+    return predictions
+
+
 def make_idempotency_key(cycle_id: str, version_id: str) -> str:
     """Estable por (ciclo, modelo): un reintento con el mismo resultado
     reutiliza la misma llave y nunca crea una segunda entrega.
@@ -462,6 +488,7 @@ def run_once(supabase_url: str) -> str:
             perfil = None
 
         predictions = build_batch_predictions(model, feature_columns, anchor_by_station, targets, data_cutoff, perfil)
+        predictions = aplicar_correccion(predictions, observaciones, data_cutoff)
         print(f"Batch armado: {len(predictions)} predicciones (min={min(p['value'] for p in predictions):.1f}, "
               f"max={max(p['value'] for p in predictions):.1f})")
 
