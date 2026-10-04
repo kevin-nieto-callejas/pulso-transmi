@@ -75,6 +75,8 @@ los hallazgos #37 a #39 y en la bitácora. En resumen:
 | **Primera entrega recuperada** | Ciclo `20260920T160000Z`, 4-oct 02:50 UTC: el relay la entregó 30 s después de abrir, con datos al corte. |
 | **Evidencia de la adaptación** | Backtest causal rev 4: mezcla champion+perfil 64.0, persistencia 72.1, persistencia+½ tendencia 72.6; pipeline completo desde las 13:15 virtuales: 78-83. |
 | **Cobertura y accuracy** | 4-oct 02:22 UTC: 186/188 ciclos (98.9%), acumulado 76.26, puesto 6 de 32. |
+| **Adaptación continua** | Con más horas de la revisión 4 apareció una onda lenta de ~5-6 h por estación (hallazgo #40). Se agregó una sinusoide ajustada por estación en cada ciclo: con 1 armónico desde las 07:58 UTC, con 2 armónicos desde las 14:21 y con peso 0.7 desde el ciclo de las 17:50. Ciclos oficiales: 73-79 antes de la onda larga; 81.68 en el primero con ella; 82.68 y 85.65 con 2 armónicos. |
+| **Leaderboard** | 4-oct 16:43 UTC: acumulado 76.11, puesto 5 de 32 (desde el 6). |
 
 **Entrenamientos.** En la fase final no se promovió ningún modelo nuevo y el
 champion sigue siendo `catboost_sin_semanal-20260921T161638Z`. La adaptación a
