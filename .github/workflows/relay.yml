@@ -1,0 +1,68 @@
+name: relay
+
+# El cron de GitHub solo despierta cada 3-5 horas en la practica, y los
+# ciclos duran 25 minutos. Las entregas puntuales dependian de un vigilante
+# en el PC que hacia workflow_dispatch: al apagarlo se perdieron ciclos.
+# Este job vive ~5h40m sondeando la API cada 45 s y al terminar se vuelve a
+# disparar a si mismo (workflow_dispatch con GITHUB_TOKEN si crea corridas).
+# El cron solo reanuda la cadena si alguna vez se rompe.
+on:
+  schedule:
+    - cron: "7,27,47 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: pulso-relay
+  cancel-in-progress: false
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    permissions:
+      contents: read
+      actions: write
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      PULSO_API_KEY: ${{ secrets.PULSO_API_KEY }}
+      API: https://pulso-transmi.72-60-245-2.sslip.io
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e '.[ml]'
+      - name: Identificar el champion vigente
+        id: champion
+        run: |
+          VERSION=$(curl -s "$SUPABASE_URL/rest/v1/model_versions?status=eq.champion&select=version_id" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            | python -c "import sys,json; d=json.load(sys.stdin); print(d[0]['version_id'] if d else 'ninguno')")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: artifacts
+          key: modelo-${{ steps.champion.outputs.version }}
+      - name: Vigilar y entregar cada ciclo
+        continue-on-error: true
+        run: |
+          END=$((SECONDS + 340*60))
+          LAST=""
+          while [ $SECONDS -lt $END ]; do
+            CYC=$(curl -s -m 20 -H "Authorization: Bearer $PULSO_API_KEY" "$API/v1/forecast-cycles/current" \
+              | python -c "import sys,json; d=json.load(sys.stdin); print(d['cycle_id'] if d.get('state')=='open' else '')" 2>/dev/null || true)
+            if [ -n "$CYC" ] && [ "$CYC" != "$LAST" ]; then
+              echo "::group::$(date -u +%H:%M:%S) ciclo $CYC"
+              python src/ingest.py || echo "ingest fallo; se entrega con lo que haya"
+              if PULSO_POLL_MINUTES=2 PULSO_POLL_INTERVAL_SECONDS=30 python src/infer.py; then LAST="$CYC"; fi
+              echo "::endgroup::"
+            fi
+            sleep 45
+          done
+      - name: Encadenar la siguiente corrida
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run relay.yml --ref "${{ github.ref_name }}" -R "${{ github.repository }}"
