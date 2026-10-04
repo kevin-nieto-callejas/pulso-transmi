@@ -170,7 +170,7 @@ def accuracy_movil(historial: pd.DataFrame, horas: int = 24) -> float | None:
     if historial.empty or "station_id" not in historial.columns:
         return None
     corte = pd.Timestamp.now(tz="UTC") - pd.Timedelta(hours=horas)
-    reciente = historial[pd.to_datetime(historial["computed_at"], utc=True) >= corte]
+    reciente = historial[pd.to_datetime(historial["computed_at"], utc=True, format="ISO8601") >= corte]
     reciente = reciente[reciente["station_id"].isna()]
     return float(reciente["accuracy"].mean()) if not reciente.empty else None
 
@@ -207,7 +207,7 @@ def detectar_degradacion(historial: pd.DataFrame, metrica_esperada: float | None
     totales = historial[historial["station_id"].isna()].copy()
     if totales.empty:
         return None
-    totales["computed_at"] = pd.to_datetime(totales["computed_at"], utc=True)
+    totales["computed_at"] = pd.to_datetime(totales["computed_at"], utc=True, format="ISO8601")
     totales = totales.sort_values("computed_at")
 
     # Hace falta la ventana actual, mas otra ventana entera de separacion
@@ -465,14 +465,23 @@ def recalcular_ciclos(client: httpx.Client, url: str, predicciones: pd.DataFrame
     todas = predicciones.merge(evaluadas, left_on="id", right_on="prediction_id")
     todas = todas[todas["cycle_id"].isin(ciclos)]
     metricas = metricas_por_ciclo(todas)
+    # `computed_at` hace de "cuando fue el ciclo" para la ventana de 24 h del
+    # drift, retrain-watch y el orden del dashboard. Al recalcular se fija a la
+    # hora real de la entrega, para no amontonar ciclos viejos en "ahora".
+    entregas = traer(client, url, "submissions", {"select": "cycle_id,submitted_at"})
+    hora_ciclo = {} if entregas.empty else entregas.groupby("cycle_id")["submitted_at"].min().to_dict()
+    for cid, g in todas.groupby("cycle_id"):  # ciclos sin entrega (simulacros): la hora de sus targets
+        hora_ciclo.setdefault(cid, pd.Timestamp(g["target_at"].min()).isoformat())
     for lote in [sorted(ciclos)[i:i + 50] for i in range(0, len(ciclos), 50)]:
         r = client.delete(f"{url}/rest/v1/cycle_metrics", headers=supabase_headers(),
                           params={"cycle_id": f"in.({','.join(lote)})"})
         if r.status_code >= 300:
             raise RuntimeError(f"No se pudo limpiar cycle_metrics: {r.status_code} {r.text[:300]}")
+    ahora = datetime.now(timezone.utc).isoformat()
     guardar(client, url, "cycle_metrics", [
         {"cycle_id": r["cycle_id"], "station_id": r["station_id"],
-         "wape": None if pd.isna(r["wape"]) else float(r["wape"]), "accuracy": float(r["accuracy"])}
+         "wape": None if pd.isna(r["wape"]) else float(r["wape"]), "accuracy": float(r["accuracy"]),
+         "computed_at": hora_ciclo.get(r["cycle_id"], ahora)}
         for _, r in metricas.iterrows()
     ])
     print(f"Metricas recalculadas para {metricas['cycle_id'].nunique()} ciclo(s) con todas sus evaluaciones.")
