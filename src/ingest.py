@@ -64,6 +64,21 @@ def get_last_context_timestamp(client: httpx.Client, supabase_url: str) -> str |
     return rows[0]["observed_at"] if rows else None
 
 
+def observacion_a_fila(r: dict) -> dict | None:
+    """Normaliza v1 (`demand` numerico) y v2 (`measurement.value` texto, o
+    null con quality=missing) a una fila de `observations`. Desde las
+    2026-09-20T12:00Z virtuales la API solo publica v2; leer `demand` a secas
+    tumbaba el collector y la inferencia seguia con datos de horas atras."""
+    if r.get("schema_version", 1) >= 2:
+        m = r.get("measurement") or {}
+        if m.get("quality") != "observed" or m.get("value") is None:
+            return None
+        demanda = int(round(float(m["value"])))  # la columna es integer; llega "546.00"
+    else:
+        demanda = r["demand"]
+    return {"station_id": str(r["station_id"]), "observed_at": r["observed_at"], "demand": demanda}
+
+
 def fetch_new_observations(client: httpx.Client, cursor: str | None) -> tuple[list[dict], str | None]:
     """Pagina /v1/stream/observations desde `cursor` hasta agotar next_cursor.
 
@@ -185,10 +200,10 @@ def main() -> None:
             print("Sin novedades (stream vacio o al dia). Bitacora registrada igual.")
             return
 
-        obs_rows = [
-            {"station_id": str(r["station_id"]), "observed_at": r["observed_at"], "demand": r["demand"]}
-            for r in new_observations
-        ]
+        obs_rows = [fila for fila in map(observacion_a_fila, new_observations) if fila is not None]
+        faltantes = len(new_observations) - len(obs_rows)
+        if faltantes:
+            print(f"{faltantes} observaciones v2 con quality=missing se omiten (un faltante no es cero).")
         upsert(client, supabase_url, "observations", obs_rows, on_conflict="station_id,observed_at")
         upsert(client, supabase_url, "context_readings", new_context, on_conflict="observed_at")
 

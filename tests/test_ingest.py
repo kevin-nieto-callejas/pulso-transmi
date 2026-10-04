@@ -54,6 +54,18 @@ def test_fetch_new_observations_confirms_cursor_used_for_last_page(monkeypatch) 
     assert confirmed_cursor == "page-2"
 
 
+def test_observacion_a_fila_lee_v1_y_v2_y_omite_faltantes() -> None:
+    v1 = {"station_id": "02300", "observed_at": "t0", "demand": 410}
+    v2 = {"schema_version": 2, "station_id": "02300", "observed_at": "t1",
+          "measurement": {"value": "546.00", "unit": "passengers", "quality": "observed"}}
+    faltante = {"schema_version": 2, "station_id": "02300", "observed_at": "t2",
+                "measurement": {"value": None, "unit": "passengers", "quality": "missing"}}
+
+    assert ingest.observacion_a_fila(v1)["demand"] == 410
+    assert ingest.observacion_a_fila(v2) == {"station_id": "02300", "observed_at": "t1", "demand": 546}
+    assert ingest.observacion_a_fila(faltante) is None
+
+
 def test_fetch_new_observations_preserves_cursor_when_stream_is_empty(monkeypatch) -> None:
     """Caso real verificado en produccion: reloj en 'waiting', el stream
     devuelve data=[] y next_cursor=None. El cursor de entrada debe
