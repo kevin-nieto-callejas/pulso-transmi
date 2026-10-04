@@ -884,3 +884,40 @@ dobles entre los dos caminos. **Ya no depende del PC.**
 
 `evaluate.py` tambien entro al relay: antes solo corria en `collector.yml`,
 con el mismo problema de cron, y `cycle_metrics` llegaba con horas de atraso.
+
+---
+
+## 40. La revision 4 tambien es una onda, pero lenta (~5-6 h) y distinta por estacion
+
+**Que creiamos (#38):** que la revision 4 eran tendencias lentas sin estructura,
+y que lo mejor era persistencia + 1/2 tendencia.
+
+**Que medimos:** con 7 h de datos de la revision 4 aparece una onda de ~5-6 h
+con periodo y fase propios por estacion (10009 con picos a las 13:30 y 18:30
+virtual; 9000 a las 14:00 y ~19:15; 7107 con pico a las 14:30 y valle a las
+17:30). La persistencia+tendencia llega tarde a cada giro. La onda corta (#35)
+no la ve: su ventana de 12 h todavia mezcla la revision 3 y su rejilla llega
+solo a 6 h.
+
+Ajuste por estacion de `a + b*sin(wx) + c*cos(wx)` por minimos cuadrados, solo
+con datos desde 2026-09-20T12:00Z (la frontera que publico el profesor),
+periodo elegido en una rejilla de 3.5 a 8 h, y el cambio de la curva sumado al
+ultimo valor real. Backtest causal con el codigo de produccion:
+
+| Cortes | Persistencia + tendencia | Mezcla 50/50 con onda larga |
+|---|---:|---:|
+| 16:00-18:00Z (9, donde se eligio) | 79.96 | **83.28** |
+| 18:15-19:00Z (4, fuera de muestra) | 79.01 | **79.28** |
+| Los 13 | 79.67 | **82.05** |
+
+La sinusoide sola, o con tendencia lineal, sale peor que la mezcla. Un modelo
+entrenado (gradient boosting sobre los ultimos 8 valores normalizados,
+reentrenado en cada corte, walk-forward) quedo por debajo de la
+persistencia+tendencia en media (74.84 contra 76.97 en 25 cortes): habia
+aprendido la dinamica de la revision 3.
+
+**Que implica:** `PerfilAdaptativo.onda_larga()` va mezclada 50/50 con la
+persistencia+tendencia (`PESO_ONDA_LARGA`) cuando hay al menos 4 h de la
+revision 4. 3 tests nuevos (74/74). La confirmacion fuera de muestra fue mas
+debil que la muestra de seleccion (+0.27 contra +3.3): se subio porque no
+empeora y en el total gana +2.4, no porque el numero grande este garantizado.
