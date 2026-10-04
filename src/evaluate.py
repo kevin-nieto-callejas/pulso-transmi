@@ -455,6 +455,29 @@ def guardar(client: httpx.Client, url: str, tabla: str, filas: list[dict], on_co
         raise RuntimeError(f"No se pudo escribir en {tabla}: {r.status_code} {r.text[:300]}")
 
 
+def recalcular_ciclos(client: httpx.Client, url: str, predicciones: pd.DataFrame, ciclos: set) -> None:
+    """Reemplaza las filas de `cycle_metrics` de `ciclos` por las del ciclo completo."""
+    if not ciclos:
+        return
+    evaluadas = traer(client, url, "prediction_evaluations", {"select": "prediction_id,actual_value"})
+    if evaluadas.empty:
+        return
+    todas = predicciones.merge(evaluadas, left_on="id", right_on="prediction_id")
+    todas = todas[todas["cycle_id"].isin(ciclos)]
+    metricas = metricas_por_ciclo(todas)
+    for lote in [sorted(ciclos)[i:i + 50] for i in range(0, len(ciclos), 50)]:
+        r = client.delete(f"{url}/rest/v1/cycle_metrics", headers=supabase_headers(),
+                          params={"cycle_id": f"in.({','.join(lote)})"})
+        if r.status_code >= 300:
+            raise RuntimeError(f"No se pudo limpiar cycle_metrics: {r.status_code} {r.text[:300]}")
+    guardar(client, url, "cycle_metrics", [
+        {"cycle_id": r["cycle_id"], "station_id": r["station_id"],
+         "wape": None if pd.isna(r["wape"]) else float(r["wape"]), "accuracy": float(r["accuracy"])}
+        for _, r in metricas.iterrows()
+    ])
+    print(f"Metricas recalculadas para {metricas['cycle_id'].nunique()} ciclo(s) con todas sus evaluaciones.")
+
+
 def main() -> None:
     url = os.environ["SUPABASE_URL"].rstrip("/")
     with httpx.Client(timeout=90.0) as client:
@@ -479,13 +502,17 @@ def main() -> None:
                  "absolute_error": float(r.absolute_error)} for r in nuevas.itertuples()
             ], on_conflict="prediction_id")
 
-            metricas = metricas_por_ciclo(nuevas)
-            guardar(client, url, "cycle_metrics", [
-                {"cycle_id": r["cycle_id"], "station_id": r["station_id"],
-                 "wape": None if pd.isna(r["wape"]) else float(r["wape"]), "accuracy": float(r["accuracy"])}
-                for _, r in metricas.iterrows()
-            ])
-            print(f"Metricas calculadas para {metricas['cycle_id'].nunique()} ciclo(s).")
+            # La realidad de un ciclo llega por partes (las observaciones se
+            # liberan cada 30 min). Calcular solo con `nuevas` dejaba DOS filas
+            # parciales por ciclo y ninguna era la del ciclo completo (10:00Z
+            # del 21-sep: 89.17 y 79.72). Se recalcula cada ciclo tocado con
+            # TODAS sus evaluaciones y se reemplazan sus filas.
+            ciclos = set(nuevas["cycle_id"])
+            if os.environ.get("RECALCULAR_TODO") == "1":
+                ciclos = set(predicciones["cycle_id"])
+            recalcular_ciclos(client, url, predicciones, ciclos)
+        elif os.environ.get("RECALCULAR_TODO") == "1":
+            recalcular_ciclos(client, url, predicciones, set(predicciones["cycle_id"]))
 
         historial = traer(client, url, "cycle_metrics",
                           {"select": "cycle_id,station_id,accuracy,computed_at", "order": "computed_at.desc"})
