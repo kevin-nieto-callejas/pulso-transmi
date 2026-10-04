@@ -190,6 +190,20 @@ CICLOS_PERIODO = 2       # promedia target-P y target-2P
 # +0.6, 0.85: +0.7, 1.00: +0.5; se toma 0.70 por prudencia, casi toda la ganancia).
 PESO_PERFIL_CON_DESFASE = 0.70
 
+# Revision 4 del drift (hallazgo #40): la demanda sigue una onda lenta de ~5-6 h
+# con periodo y fase propios por estacion. La onda corta no la ve (busca P <= 6 h
+# con 12 h de evidencia, y esas 12 h siguen mezclando la revision 3) y la
+# persistencia+tendencia llega tarde a cada giro. Por estacion se ajusta
+# a + b*sin(wx) + c*cos(wx) por minimos cuadrados SOLO con datos desde el inicio
+# de la revision 4, con el periodo de la rejilla que mejor ajusta, y se suma al
+# ultimo valor real el cambio que la curva predice hasta el target. Va mezclada
+# 50/50 con la persistencia+tendencia. Backtest causal, 9 cortes (16:00-18:00Z
+# virtual): persistencia+tendencia 79.96 -> mezcla 83.28, peor corte 76.6 -> 80.7.
+INICIO_REVISION_4 = pd.Timestamp("2026-09-20T12:00:00Z")  # frontera publicada por el profesor
+ONDA_LARGA_PERIODOS_H = np.arange(3.5, 8.01, 0.25)
+ONDA_LARGA_MIN_PUNTOS = 16   # 4 h de la revision 4 antes de confiar en el ajuste
+PESO_ONDA_LARGA = 0.5
+
 # Correccion de fase. El `peak_shift` del generador corre el centro del pico
 # diario (+45 min en el ejemplo del profesor) ademas de subir el nivel. El
 # perfil sigue anclado a la hora vieja y predice el pico donde ya no esta, y
@@ -443,6 +457,41 @@ class PerfilAdaptativo:
         ventana = validos[validos > ultimo - 4]
         pendiente = np.polyfit(ventana, serie[ventana], 1)[0] if ventana.size >= 2 else 0.0
         return float(max(0.0, serie[ultimo] + 0.5 * pendiente * (self._paso(target_at) - ultimo)))
+
+    def onda_larga(
+        self, estacion: str, ancla_at: pd.Timestamp, target_at: pd.Timestamp,
+    ) -> float | None:
+        """Ultimo valor real + el cambio que predice la sinusoide ajustada con
+        los datos de la revision 4, o `None` si todavia no hay suficientes
+        (ver INICIO_REVISION_4)."""
+        serie = self._serie.get(str(estacion))
+        if serie is None:
+            return None
+        tope = self._paso(ancla_at)
+        inicio = max(0, self._paso(INICIO_REVISION_4))
+        if tope < inicio:
+            return None
+        indices = np.arange(inicio, tope + 1)
+        indices = indices[~np.isnan(serie[indices])]
+        if indices.size < ONDA_LARGA_MIN_PUNTOS:
+            return None
+        valores = serie[indices]
+        x = (indices - tope).astype(float)
+        mejor = None
+        for horas in ONDA_LARGA_PERIODOS_H:
+            w = 2 * np.pi / (horas * PASOS_POR_HORA)
+            matriz = np.column_stack([np.ones_like(x), np.sin(w * x), np.cos(w * x)])
+            coef, *_ = np.linalg.lstsq(matriz, valores, rcond=None)
+            residuo = float(((matriz @ coef - valores) ** 2).sum())
+            if mejor is None or residuo < mejor[0]:
+                mejor = (residuo, coef, w)
+        _, coef, w = mejor
+
+        def curva(z: float) -> float:
+            return coef[0] + coef[1] * np.sin(w * z) + coef[2] * np.cos(w * z)
+
+        z_target = float(self._paso(target_at) - tope)
+        return float(max(0.0, valores[-1] + curva(z_target) - curva(x[-1])))
 
     def extrapolacion_extrema(
         self, estacion: str, ancla_at: pd.Timestamp, target_at: pd.Timestamp,

@@ -20,6 +20,7 @@ from perfil import (  # noqa: E402
     PESO_PERFIL_CON_DESFASE,
     UMBRAL_EXTRAPOLACION_ALZA,
     UMBRAL_EXTRAPOLACION_CIERRE,
+    INICIO_REVISION_4,
     PerfilAdaptativo,
     mezclar,
 )
@@ -364,3 +365,44 @@ def test_rellenar_contexto_extiende_con_la_mediana_de_cada_franja():
     assert (nuevo["temperature_c"].to_numpy() == horas.to_numpy()).all()
     # y no toca lo que ya existia, ni rellena si no hace falta
     assert len(rellenar_contexto(ctx, t.max())) == len(ctx)
+
+
+def _observaciones_revision_4(horas_rev4: float = 6.0, periodo_h: float = 5.5) -> pd.DataFrame:
+    """Historia normal hasta el inicio de la revision 4 y despues una onda
+    sinusoidal lenta: la forma del hallazgo #40."""
+    inicio = INICIO_REVISION_4 - pd.Timedelta(days=5)
+    pasos = int((5 * 24 + horas_rev4) * 4) + 1
+    instantes = [inicio + pd.Timedelta(minutes=15 * i) for i in range(pasos)]
+    valores = []
+    for t in instantes:
+        if t < INICIO_REVISION_4:
+            valores.append(300.0)
+        else:
+            x = (t - INICIO_REVISION_4) / pd.Timedelta(hours=1)
+            valores.append(500.0 + 400.0 * np.sin(2 * np.pi * x / periodo_h))
+    return pd.DataFrame({"station_id": "01000", "observed_at": instantes, "demand": valores})
+
+
+def test_la_onda_larga_sigue_la_sinusoide_de_la_revision_4():
+    obs = _observaciones_revision_4()
+    perfil = PerfilAdaptativo(obs)
+    ancla = obs["observed_at"].max()
+    for minutos in (15, 30, 45, 60):
+        objetivo = ancla + pd.Timedelta(minutes=minutos)
+        x = (objetivo - INICIO_REVISION_4) / pd.Timedelta(hours=1)
+        esperado = 500.0 + 400.0 * np.sin(2 * np.pi * x / 5.5)
+        assert perfil.onda_larga("01000", ancla, objetivo) == pytest.approx(esperado, abs=1.0)
+
+
+def test_la_onda_larga_espera_cuatro_horas_de_la_revision_4():
+    obs = _observaciones_revision_4(horas_rev4=3.0)
+    perfil = PerfilAdaptativo(obs)
+    ancla = obs["observed_at"].max()
+    assert perfil.onda_larga("01000", ancla, ancla + pd.Timedelta(minutes=15)) is None
+
+
+def test_la_onda_larga_no_existe_antes_de_la_revision_4():
+    obs = _observaciones()
+    perfil = PerfilAdaptativo(obs)
+    ancla = obs["observed_at"].max()
+    assert perfil.onda_larga("01000", ancla, ancla + pd.Timedelta(minutes=15)) is None
