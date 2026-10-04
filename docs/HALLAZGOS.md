@@ -921,3 +921,12 @@ persistencia+tendencia (`PESO_ONDA_LARGA`) cuando hay al menos 4 h de la
 revision 4. 3 tests nuevos (74/74). La confirmacion fuera de muestra fue mas
 debil que la muestra de seleccion (+0.27 contra +3.3): se subio porque no
 empeora y en el total gana +2.4, no porque el numero grande este garantizado.
+
+**Confirmacion en produccion (4-oct, 11:00 UTC):** entro con el relay de las
+07:58 UTC; el ciclo `20260920T220000Z` fue el primero con la onda larga. Las 48
+predicciones guardadas coinciden con el codigo (diferencia maxima 0.005). Con 25
+cortes (12 posteriores a la seleccion) la mezcla da 83.07 contra 80.50 de la
+persistencia+tendencia, y en los ultimos 12 da 84.18 contra 81.39. Ventanas de 8,
+10 o 12 h y el peso 0.7 no mejoran, asi que no se tocan. Ciclos oficiales:
+22:00Z 81.68 (el mejor de la revision 4) y 23:00Z 72.92, un corte dificil para
+cualquier estrategia (backtest en ese corte: 71.2 sin la onda, 76.9 con ella).
