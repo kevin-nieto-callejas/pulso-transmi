@@ -52,13 +52,13 @@ hora real, ventana de entrega de 25 min. Métrica: accuracy = 100·(1−WAPE), a
   Backtest con datos rev 4 (cortes 12:00–14:00 virtual): onda vieja ≈0–33; mezcla champion+perfil
   64; persistencia 72.1; persistencia+½tendencia 72.6. Pipeline nuevo desde 13:15: 78–83.
 
-## Cómo vamos (leaderboard oficial, 4 oct 01:58 UTC)
-Puesto **6 de 32**, accuracy acumulada **76.26**, cobertura 98.9% (186/188 ciclos).
-1º John Bernal 81.02 · 2º Isaias Céspedes 80.44 · 3º Allison Loango 78.64 · 4º Daniela González 78.59 ·
-5º Lis Sánchez 76.57 · **6º Kevin 76.26** · 7º Mateo Hoyos 76.21.
-Historia: ~85 en régimen normal; el 1 oct (drift rev 3, antes de la onda corta) se promedió 38
-y eso hundió el acumulado; con la onda corta, 37 ciclos seguidos en 90–94.
-Quedan ~27 ciclos: remontar al 1º es muy difícil, pero el 5º está a 0.31 y el 7º a 0.05.
+## Cómo vamos (leaderboard oficial, 4 oct 22:14 UTC)
+Puesto **5 de 32**, accuracy acumulada **76.50**, cobertura 99.0% (208 ciclos resueltos).
+1º Isaias Céspedes 80.84 · 2º John Bernal 80.78 · 3º Daniela González 79.31 · 4º Mateo Hoyos 77.26 ·
+**5º Kevin 76.50** · 6º Lis Sánchez 74.61.
+Durante el 4-oct: hallazgos #40 (onda larga de la rev 4: sinusoide por estación, 2 armónicos desde 8 h,
+peso 0.7 desde 10 h) y #41 (cycle_metrics parciales). Ciclos oficiales: 73-79 antes de la onda larga,
+83-88 después. `relay.yml` hace `git pull` antes de cada ciclo: un push entra en el ciclo siguiente.
 
 ## Pendientes / ideas para seguir
 1. **Verificar el primer ciclo con el código nuevo** (abre ~02:49 UTC 4 oct): en el log del relay

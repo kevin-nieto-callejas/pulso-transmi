@@ -17,13 +17,16 @@ está en su **fase final** (API `0.9.0`: drift revisión 4 y contrato de
 observación v2), que cierra el **domingo 4 de octubre de 2026 a las 23:59,
 hora de Bogotá**.
 
-**Estado verificado el 4 de octubre de 2026, 02:22 UTC:** puesto **6 de 32**
-con **76.26** de accuracy acumulada y cobertura de **98.9%** (186/188 ciclos).
-Champion base `catboost_sin_semanal` (86.76 de validación) más una capa
-adaptativa para el drift: onda corta (rev 3) y persistencia + tendencia
-(rev 4). Las entregas corren en la nube con `relay.yml`, sin depender de ningún
-PC. 71 tests en verde. La fase final está contada en
-[`docs/INFORME_FINAL.md`](docs/INFORME_FINAL.md) y en los hallazgos #37-#39.
+**Estado verificado el 4 de octubre de 2026, 22:14 UTC:** puesto **5 de 32**
+con **76.50** de accuracy acumulada y cobertura de **99.0%** (208 ciclos
+resueltos). Champion base `catboost_sin_semanal` (86.76 de validación) más una
+capa adaptativa para el drift: onda corta (rev 3) y, en la rev 4, una onda larga
+ajustada por estación en cada ciclo (sinusoide de 1-2 armónicos) mezclada con
+persistencia + tendencia. Con ella los ciclos oficiales pasaron de 73-79 a
+83-88. Las entregas corren en la nube con `relay.yml`, que se relanza solo y
+toma el código nuevo antes de cada ciclo, sin depender de ningún PC. 76 tests
+en verde. La fase final está contada en
+[`docs/INFORME_FINAL.md`](docs/INFORME_FINAL.md) y en los hallazgos #37-#41.
 
 - ✅ SDK instalado, histórico descargado (12 estaciones, 45 días, 51.840
   observaciones).
@@ -73,7 +76,7 @@ PC. 71 tests en verde. La fase final está contada en
 - ✅ MLflow (bono): `src/sweep.py` explora al azar las tres familias de
   boosting y registra cada intento; `src/revalidar.py` vuelve a medir los
   mejores con el protocolo oficial antes de considerarlos promovibles.
-- ✅ Pruebas automatizadas (bono): 71 tests en CI, más una batería de
+- ✅ Pruebas automatizadas (bono): 76 tests en CI, más una batería de
   esfuerzo (`src/stress_test.py`) y un simulacro de ciclo completo
   (`src/simulate_cycle.py`).
 - ✅ Evaluación con ciclos reales: `prediction_evaluations` y
@@ -143,7 +146,7 @@ camino "sin ciclo abierto", el armado del batch (horizonte correcto por
 target, valores recortados a `[0, 100000]` como exige el contrato,
 estación desconocida levanta error), la llave de idempotencia estable, la
 detección de "este ciclo ya fue entregado" y la forma exacta del payload
-de `SubmissionInput`. En total el repo corre 71 tests en CI.
+de `SubmissionInput`. En total el repo corre 76 tests en CI.
 
 Automatizado vía `.github/workflows/relay.yml`: un job que consulta el ciclo
 cada 45 s durante ~5 h 40 min y se relanza solo al terminar (hallazgo #39).
@@ -459,7 +462,7 @@ contract/expected.json  Estado del contrato del docente que ya revisamos
 dashboard/              Pagina estatica desplegada en Vercel (bono)
 eda/                    Analisis exploratorio, graficas, reportes de experimentos
 docs/                   Bitacora, informe final, runbook, entidad-relacion, traspaso
-tests/                  71 tests: SDK, collector, inferencia, drift y adaptación
+tests/                  76 tests: SDK, collector, inferencia, drift y adaptación
 artifacts/              Modelos entrenados y cache local (ignorado por git)
 ```
 

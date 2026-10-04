@@ -6,10 +6,10 @@ MLOps · Ciencia de Datos · Universidad Externado de Colombia
 Repositorio: https://github.com/kevin-nieto-callejas/pulso-transmi
 Dashboard: https://pulso-transmi-one.vercel.app
 
-> Actualización operativa: 1 de octubre de 2026. La fase competitiva sigue
-> activa y cierra el 2 de octubre a las 23:59, hora de Bogotá. Los números de
-> leaderboard son una fotografía al momento indicado; se actualizará el cierre
-> final después del último ciclo.
+> Actualización operativa: 4 de octubre de 2026, 22:15 UTC. La fase final
+> cierra el 4 de octubre a las 23:59, hora de Bogotá (5 de octubre, 04:59 UTC).
+> Los números de leaderboard son una fotografía al momento indicado; el cierre
+> final se registra después del último ciclo.
 
 ---
 
@@ -76,7 +76,7 @@ los hallazgos #37 a #39 y en la bitácora. En resumen:
 | **Evidencia de la adaptación** | Backtest causal rev 4: mezcla champion+perfil 64.0, persistencia 72.1, persistencia+½ tendencia 72.6; pipeline completo desde las 13:15 virtuales: 78-83. |
 | **Cobertura y accuracy** | 4-oct 02:22 UTC: 186/188 ciclos (98.9%), acumulado 76.26, puesto 6 de 32. |
 | **Adaptación continua** | Con más horas de la revisión 4 apareció una onda lenta de ~5-6 h por estación (hallazgo #40). Se agregó una sinusoide ajustada por estación en cada ciclo: con 1 armónico desde las 07:58 UTC, con 2 armónicos desde las 14:21 y con peso 0.7 desde el ciclo de las 17:50. Ciclos oficiales: 73-79 antes de la onda larga; 81.68 en el primero con ella; 82.68 y 85.65 con 2 armónicos. |
-| **Leaderboard** | 4-oct 16:43 UTC: acumulado 76.11, puesto 5 de 32 (desde el 6). |
+| **Leaderboard** | 4-oct 22:14 UTC: acumulado **76.50**, puesto **5 de 32** (desde el 6), cobertura 99.0% sobre 208 ciclos resueltos. Ciclos oficiales con la versión final del modelo: 85.9, 87.0, 85.5, 88.2, 83.0 y 84.3. |
 
 **Entrenamientos.** En la fase final no se promovió ningún modelo nuevo y el
 champion sigue siendo `catboost_sin_semanal-20260921T161638Z`. La adaptación a
@@ -328,7 +328,7 @@ existe únicamente porque ese error ya se había cometido antes en el proyecto.
 
 ## 7. Qué haríamos después
 
-**Al cierre de la fase, 2 de octubre**
+**Al cierre de la fase final, 4 de octubre**
 1. Esperar la evaluación del último ciclo y capturar leaderboard final.
 2. Auditar conteo final de ciclos, aceptaciones, cobertura y duplicados.
 3. Registrar el champion vigente y el resultado de la última revisión de

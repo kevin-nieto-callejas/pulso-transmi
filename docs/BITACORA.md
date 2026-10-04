@@ -457,7 +457,7 @@ Registradas porque la guía valora poder demostrar el estado, no afirmarlo:
   historial del repositorio.
 - Reproducibilidad: el artefacto del champion se descarga desde Storage y
   vuelve a predecir en un entorno limpio (así opera GitHub Actions).
-- Pruebas: 71 tests automatizados en CI, incluidos casos de regresión de cada
+- Pruebas: 76 tests automatizados en CI, incluidos casos de regresión de cada
   error descrito arriba.
 - Ciclo completo: un simulacro con 48 targets y cuatro horizontes recorre
   predicción, emparejamiento con la realidad, métricas y limpieza, y verifica

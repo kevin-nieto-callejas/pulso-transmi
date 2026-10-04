@@ -98,10 +98,10 @@ producción — la inferencia ya no necesita LightGBM ni XGBoost.
 | **Cierre** | **Domingo 4 oct 2026, 23:59 Bogotá = lunes 5 oct 04:59 UTC** |
 | **API del profesor** | 0.9.0: drift revisión 4 + contrato de observación v2 (`docs/fase-final.md` del profesor) |
 | **Champion base** | `catboost_sin_semanal-20260921T161638Z`, validación 86.76 |
-| **Capa adaptativa** | onda corta (rev 3, #35) → persistencia + ½ tendencia (rev 4, #38) → extrapolación extrema → mezcla champion+perfil |
-| **Entregas** | `relay.yml` en la nube, sin PC (#39); `inference.yml` de respaldo |
-| **Leaderboard** | Puesto 6 de 32, accuracy acumulada 76.26, cobertura 98.9% (186/188) a las 02:22 UTC del 4/10 |
-| **Tests** | 71, todos pasan |
+| **Capa adaptativa** | onda corta (rev 3, #35) → onda larga por estación (sinusoide 1-2 armónicos, peso 0.5-0.7) mezclada con persistencia + ½ tendencia (rev 4, #38/#40) → extrapolación extrema → mezcla champion+perfil |
+| **Entregas** | `relay.yml` en la nube, sin PC (#39), con `git pull` antes de cada ciclo; `inference.yml` de respaldo |
+| **Leaderboard** | Puesto 5 de 32, accuracy acumulada 76.50, cobertura 99.0% (208 resueltos) a las 22:14 UTC del 4/10 |
+| **Tests** | 76, todos pasan |
 
 Historia corta del drift: ~85 en régimen normal. El 1/10 (revisión 3, antes de
 la onda corta) promedió ~38 y hundió el acumulado. Con la onda corta hubo 37

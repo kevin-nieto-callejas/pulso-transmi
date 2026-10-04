@@ -952,3 +952,30 @@ de vida del job.
 Nota de evaluacion: `cycle_metrics` puede guardar dos filas para el mismo ciclo
 cuando se evalua con la verdad parcial y luego con la completa (05:00Z: 85.65 y
 85.99). El acumulado oficial lo calcula el profesor y no depende de esta tabla.
+
+---
+
+## 41. Las metricas por ciclo se guardaban por partes, y ninguna parte era el ciclo
+
+**Que creiamos:** que `cycle_metrics` tenia una fila total por ciclo.
+
+**Que medimos:** la realidad de un ciclo llega por partes, porque las
+observaciones se liberan cada 30 min. `evaluate.py` calculaba la metrica solo
+con las predicciones recien emparejadas en esa corrida y la insertaba. Asi, un
+ciclo podia quedar con dos filas, cada una sobre una parte de sus 48 targets.
+Ejemplo: el ciclo 10:00Z del 21-sep tenia 89.17 y 79.72, y el valor real del
+ciclo completo es 84.32. Las filas parciales alimentaban el dashboard, la
+ventana de 24 h del detector de drift y `retrain-watch`. Otra falla sin error
+visible: los numeros se veian razonables.
+
+**Reparacion:** `recalcular_ciclos()` recalcula cada ciclo tocado con todas sus
+evaluaciones y reemplaza sus filas. `computed_at` se fija a la hora real de la
+entrega (o de los targets si no hubo entrega), porque todo el sistema la usa
+como "cuando fue el ciclo". Con `RECALCULAR_TODO=1` se limpio el historial: 281
+ciclos, 0 duplicados. De paso aparecio un segundo error: con timestamps
+mezclados (con y sin microsegundos), `pd.to_datetime` fallaba. Se corrigio con
+`format="ISO8601"`.
+
+**Leccion:** una metrica agregada tiene que calcularse sobre el agregado
+completo, no sobre el lote que acaba de llegar. Que el numero se vea bien no
+prueba que mida lo que dice.
