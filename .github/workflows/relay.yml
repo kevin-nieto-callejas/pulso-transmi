@@ -55,6 +55,10 @@ jobs:
               | python -c "import sys,json; d=json.load(sys.stdin); print(d['cycle_id'] if d.get('state')=='open' else '')" 2>/dev/null || true)
             if [ -n "$CYC" ] && [ "$CYC" != "$LAST" ]; then
               echo "::group::$(date -u +%H:%M:%S) ciclo $CYC"
+              # El job vive ~5h40m: sin esto, un arreglo subido a main tardaba
+              # hasta ese tiempo en entrar. El paquete esta instalado en modo
+              # editable, asi que el codigo nuevo de src/ queda vivo de una vez.
+              git pull -q --ff-only origin "${{ github.ref_name }}" && echo "codigo: $(git rev-parse --short HEAD)" || echo "git pull fallo; sigue con el codigo actual"
               python src/ingest.py || echo "ingest fallo; se entrega con lo que haya"
               if PULSO_POLL_MINUTES=2 PULSO_POLL_INTERVAL_SECONDS=30 python src/infer.py; then LAST="$CYC"; fi
               # La evaluacion vivia solo en collector.yml, que GitHub dispara

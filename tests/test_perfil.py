@@ -406,3 +406,14 @@ def test_la_onda_larga_no_existe_antes_de_la_revision_4():
     perfil = PerfilAdaptativo(obs)
     ancla = obs["observed_at"].max()
     assert perfil.onda_larga("01000", ancla, ancla + pd.Timedelta(minutes=15)) is None
+
+
+def test_con_ocho_horas_la_onda_larga_usa_dos_armonicos_y_sigue_la_curva():
+    obs = _observaciones_revision_4(horas_rev4=10.0)
+    perfil = PerfilAdaptativo(obs)
+    ancla = obs["observed_at"].max()
+    for minutos in (15, 60):
+        objetivo = ancla + pd.Timedelta(minutes=minutos)
+        x = (objetivo - INICIO_REVISION_4) / pd.Timedelta(hours=1)
+        esperado = 500.0 + 400.0 * np.sin(2 * np.pi * x / 5.5)
+        assert perfil.onda_larga("01000", ancla, objetivo) == pytest.approx(esperado, abs=2.0)

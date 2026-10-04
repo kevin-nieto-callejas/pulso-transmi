@@ -203,6 +203,12 @@ INICIO_REVISION_4 = pd.Timestamp("2026-09-20T12:00:00Z")  # frontera publicada p
 ONDA_LARGA_PERIODOS_H = np.arange(3.5, 8.01, 0.25)
 ONDA_LARGA_MIN_PUNTOS = 16   # 4 h de la revision 4 antes de confiar en el ajuste
 PESO_ONDA_LARGA = 0.5
+# La onda no es una sinusoide pura. Con pocas horas un segundo armonico
+# sobreajusta, pero con >= 8 h de la revision 4 captura su forma. Barrido
+# walk-forward de 41 cortes (16:00Z del 20-sep a 02:00Z del 21-sep): 1 armonico
+# 82.63 -> 2 armonicos desde 8 h 84.15 (primera mitad 82.53 -> 83.00, segunda
+# 82.72 -> 85.24). Umbrales de 6 a 10 h dan 83.8-84.2: no es un punto fino.
+ONDA_LARGA_PUNTOS_2_ARMONICOS = 32
 
 # Correccion de fase. El `peak_shift` del generador corre el centro del pico
 # diario (+45 min en el ejemplo del profesor) ademas de subir el nivel. El
@@ -477,10 +483,18 @@ class PerfilAdaptativo:
             return None
         valores = serie[indices]
         x = (indices - tope).astype(float)
+        armonicos = 2 if indices.size >= ONDA_LARGA_PUNTOS_2_ARMONICOS else 1
+
+        def columnas(z: np.ndarray, w: float) -> np.ndarray:
+            cols = [np.ones_like(z)]
+            for k in range(1, armonicos + 1):
+                cols += [np.sin(k * w * z), np.cos(k * w * z)]
+            return np.column_stack(cols)
+
         mejor = None
         for horas in ONDA_LARGA_PERIODOS_H:
             w = 2 * np.pi / (horas * PASOS_POR_HORA)
-            matriz = np.column_stack([np.ones_like(x), np.sin(w * x), np.cos(w * x)])
+            matriz = columnas(x, w)
             coef, *_ = np.linalg.lstsq(matriz, valores, rcond=None)
             residuo = float(((matriz @ coef - valores) ** 2).sum())
             if mejor is None or residuo < mejor[0]:
@@ -488,7 +502,7 @@ class PerfilAdaptativo:
         _, coef, w = mejor
 
         def curva(z: float) -> float:
-            return coef[0] + coef[1] * np.sin(w * z) + coef[2] * np.cos(w * z)
+            return float((columnas(np.array([z], dtype=float), w) @ coef)[0])
 
         z_target = float(self._paso(target_at) - tope)
         return float(max(0.0, valores[-1] + curva(z_target) - curva(x[-1])))
