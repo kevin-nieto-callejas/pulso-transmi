@@ -41,7 +41,7 @@ from features import (  # noqa: E402
     build_feature_frame,
     rellenar_contexto,
 )
-from perfil import DIAS_DE_HISTORIA, PESO_ONDA_LARGA, PESO_PERFIL_CIERRE, PerfilAdaptativo, mezclar  # noqa: E402
+from perfil import DIAS_DE_HISTORIA, PESO_PERFIL_CIERRE, PerfilAdaptativo, mezclar  # noqa: E402
 from predict import get_champion, load_model_from_storage  # noqa: E402
 
 API_URL = os.environ.get("PULSO_API_URL", "https://pulso-transmi.72-60-245-2.sslip.io").rstrip("/")
@@ -273,7 +273,8 @@ def _capa_adaptativa(perfil: PerfilAdaptativo, station_id: str, anchor_at: pd.Ti
     valor_tendencia = perfil.persistencia_tendencia(station_id, anchor_at, target_at)
     valor_onda = perfil.onda_larga(station_id, anchor_at, target_at)
     if valor_tendencia is not None and valor_onda is not None:
-        mezcla = (1 - PESO_ONDA_LARGA) * valor_tendencia + PESO_ONDA_LARGA * valor_onda
+        peso = perfil.peso_onda_larga(station_id, anchor_at)
+        mezcla = (1 - peso) * valor_tendencia + peso * valor_onda
         print(f"  {station_id} +{horizon_minutes:2d}min: champion={value:8.1f}  tendencia={valor_tendencia:8.1f}  "
               f"onda larga={valor_onda:8.1f}  ONDA LARGA -> {mezcla:8.1f}")
         return mezcla

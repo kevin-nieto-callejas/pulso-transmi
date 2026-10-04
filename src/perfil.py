@@ -209,6 +209,12 @@ PESO_ONDA_LARGA = 0.5
 # 82.63 -> 2 armonicos desde 8 h 84.15 (primera mitad 82.53 -> 83.00, segunda
 # 82.72 -> 85.24). Umbrales de 6 a 10 h dan 83.8-84.2: no es un punto fino.
 ONDA_LARGA_PUNTOS_2_ARMONICOS = 32
+# Con mas horas el ajuste es mas confiable y conviene darle mas peso. Elegido
+# sobre los 41 cortes hasta 02:00Z (84.15 -> 84.58) y confirmado fuera de
+# muestra en 10 cortes nuevos 02:15-04:30Z del 21-sep: 87.33 -> 87.88, p10
+# 85.02 -> 85.99. Umbrales de 10 a 14 h dan lo mismo.
+ONDA_LARGA_PUNTOS_PESO_ALTO = 40
+PESO_ONDA_LARGA_ALTO = 0.7
 
 # Correccion de fase. El `peak_shift` del generador corre el centro del pico
 # diario (+45 min en el ejemplo del profesor) ademas de subir el nivel. El
@@ -463,6 +469,18 @@ class PerfilAdaptativo:
         ventana = validos[validos > ultimo - 4]
         pendiente = np.polyfit(ventana, serie[ventana], 1)[0] if ventana.size >= 2 else 0.0
         return float(max(0.0, serie[ultimo] + 0.5 * pendiente * (self._paso(target_at) - ultimo)))
+
+    def peso_onda_larga(self, estacion: str, ancla_at: pd.Timestamp) -> float:
+        """Peso de la onda larga en la mezcla: sube con las horas de la revision 4."""
+        serie = self._serie.get(str(estacion))
+        if serie is None:
+            return PESO_ONDA_LARGA
+        tope = self._paso(ancla_at)
+        inicio = max(0, self._paso(INICIO_REVISION_4))
+        if tope < inicio:
+            return PESO_ONDA_LARGA
+        n = int((~np.isnan(serie[inicio:tope + 1])).sum())
+        return PESO_ONDA_LARGA_ALTO if n >= ONDA_LARGA_PUNTOS_PESO_ALTO else PESO_ONDA_LARGA
 
     def onda_larga(
         self, estacion: str, ancla_at: pd.Timestamp, target_at: pd.Timestamp,

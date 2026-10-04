@@ -417,3 +417,12 @@ def test_con_ocho_horas_la_onda_larga_usa_dos_armonicos_y_sigue_la_curva():
         x = (objetivo - INICIO_REVISION_4) / pd.Timedelta(hours=1)
         esperado = 500.0 + 400.0 * np.sin(2 * np.pi * x / 5.5)
         assert perfil.onda_larga("01000", ancla, objetivo) == pytest.approx(esperado, abs=2.0)
+
+
+def test_el_peso_de_la_onda_larga_sube_con_diez_horas_de_la_revision_4():
+    corto = PerfilAdaptativo(_observaciones_revision_4(horas_rev4=6.0))
+    largo = PerfilAdaptativo(_observaciones_revision_4(horas_rev4=11.0))
+    ancla_corto = _observaciones_revision_4(horas_rev4=6.0)["observed_at"].max()
+    ancla_largo = _observaciones_revision_4(horas_rev4=11.0)["observed_at"].max()
+    assert corto.peso_onda_larga("01000", ancla_corto) == 0.5
+    assert largo.peso_onda_larga("01000", ancla_largo) == 0.7
