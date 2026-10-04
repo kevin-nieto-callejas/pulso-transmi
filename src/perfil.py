@@ -411,11 +411,38 @@ class PerfilAdaptativo:
             return None
         serie = self._serie[str(estacion)]
         tope = self._paso(ancla_at)
+        # La ventana de 12 h tarda horas en notar que la onda se acabo (revision
+        # 4: la onda siguio activa con 85% retrospectivo y acerto 0%). Se exige
+        # que tambien haya acertado en las ultimas 2 h.
+        recientes = np.arange(tope - 7, tope + 1)
+        reales, previos = serie[recientes], serie[recientes - p]
+        ok = ~np.isnan(reales) & ~np.isnan(previos)
+        if ok.sum() >= 4 and reales[ok].sum() > 0:
+            if 100 * (1 - np.abs(previos[ok] - reales[ok]).sum() / reales[ok].sum()) < UMBRAL_PERIODO:
+                return None
         paso = self._paso(target_at)
         valores = [serie[paso - q * p] for q in range(1, CICLOS_PERIODO + 1)
                    if 0 <= paso - q * p <= tope]
         valores = [v for v in valores if not np.isnan(v)]
         return float(np.mean(valores)) if valores else None
+
+    def persistencia_tendencia(
+        self, estacion: str, ancla_at: pd.Timestamp, target_at: pd.Timestamp,
+    ) -> float | None:
+        """Ultimo valor real + la mitad de la pendiente de la ultima hora. En la
+        revision 4 (tendencias lentas sin onda) midio 72.6 contra 64.0 de la
+        mezcla champion+perfil y ~0 de la onda corta vieja."""
+        serie = self._serie.get(str(estacion))
+        if serie is None:
+            return None
+        tope = self._paso(ancla_at)
+        validos = np.flatnonzero(~np.isnan(serie[max(0, tope - 7):tope + 1])) + max(0, tope - 7)
+        if validos.size == 0:
+            return None
+        ultimo = validos[-1]
+        ventana = validos[validos > ultimo - 4]
+        pendiente = np.polyfit(ventana, serie[ventana], 1)[0] if ventana.size >= 2 else 0.0
+        return float(max(0.0, serie[ultimo] + 0.5 * pendiente * (self._paso(target_at) - ultimo)))
 
     def extrapolacion_extrema(
         self, estacion: str, ancla_at: pd.Timestamp, target_at: pd.Timestamp,

@@ -270,6 +270,11 @@ def _capa_adaptativa(perfil: PerfilAdaptativo, station_id: str, anchor_at: pd.Ti
         print(f"  {station_id} +{horizon_minutes:2d}min: champion={value:8.1f}  ONDA CORTA -> {valor_periodico:8.1f}")
         return valor_periodico
 
+    valor_tendencia = perfil.persistencia_tendencia(station_id, anchor_at, target_at)
+    if valor_tendencia is not None:
+        print(f"  {station_id} +{horizon_minutes:2d}min: champion={value:8.1f}  TENDENCIA -> {valor_tendencia:8.1f}")
+        return valor_tendencia
+
     # Despues, un pico que se revierte de golpe (hallazgo #31/#34): si el factor
     # esta en zona EXTREMA, la extrapolacion lineal de la serie cruda manda sola
     # (ver UMBRAL_EXTRAPOLACION_* en perfil.py).
