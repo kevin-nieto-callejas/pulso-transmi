@@ -979,3 +979,40 @@ mezclados (con y sin microsegundos), `pd.to_datetime` fallaba. Se corrigio con
 **Leccion:** una metrica agregada tiene que calcularse sobre el agregado
 completo, no sobre el lote que acaba de llegar. Que el numero se vea bien no
 prueba que mida lo que dice.
+
+---
+
+## 42. Un LightGBM que corrige el residuo de la capa adaptativa: +1.75 a +2.06
+
+**Que paso:** con 23 h de la revision 4 ya hay suficientes cortes resueltos para
+aprender los errores sistematicos de la onda larga + persistencia+tendencia: por
+ejemplo, en que fases del ciclo llega tarde o exagera.
+
+**Experimento** (walk-forward causal, reentrenando cada hora solo con cortes
+cuyo target ya ocurrio; entrenamiento desde 16:00Z, evaluacion 00:00-10:00Z
+del 21-sep, 41 cortes):
+
+| Modelo | Media | 1a mitad | 2a mitad | p10 |
+|---|---:|---:|---:|---:|
+| **LightGBM sobre el residuo** | **89.34** | 88.82 | 89.84 | 87.15 |
+| LightGBM directo | 89.01 | 88.50 | 89.49 | 86.76 |
+| Produccion (onda larga + pt) | 87.59 | 87.01 | 88.14 | 85.45 |
+| Ridge de apilamiento | 87.03 | 86.26 | 87.76 | 84.32 |
+
+Features por estacion, corte y horizonte: las ultimas 8 lecturas, la pendiente
+de la ultima hora y las tres predicciones (mezcla, onda sola,
+persistencia+tendencia), todo dividido por el nivel reciente, mas el horizonte y
+las horas de la revision 4. Objetivo L1: es lo que mide el WAPE.
+
+**Validacion del modulo de produccion** (`src/correccion.py`, llamado tal como
+lo hace `infer.py` en 11 cortes horarios): 87.09 -> 89.15, gana en 10 de 11.
+Tarda ~4 s por ciclo.
+
+**Que implica:** `infer.aplicar_correccion()` reemplaza las 48 predicciones por
+las corregidas cuando hay al menos 6 h de cortes de la revision 4 para
+entrenar. Ante cualquier error sale la capa adaptativa sola. 78 tests.
+
+**Sobre el ranking:** el acumulado promedia ~215 ciclos. Con unos 7 por
+resolver al subir esto, ni este modelo ni ninguno puede mover el puesto (pasar
+al 4o exigiria ~100 en cada ciclo restante). Lo que mejora es la accuracy de
+los ultimos ciclos y la evidencia de adaptacion para el informe.
