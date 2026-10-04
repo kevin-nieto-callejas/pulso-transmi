@@ -930,3 +930,25 @@ persistencia+tendencia, y en los ultimos 12 da 84.18 contra 81.39. Ventanas de 8
 10 o 12 h y el peso 0.7 no mejoran, asi que no se tocan. Ciclos oficiales:
 22:00Z 81.68 (el mejor de la revision 4) y 23:00Z 72.92, un corte dificil para
 cualquier estrategia (backtest en ese corte: 71.2 sin la onda, 76.9 con ella).
+
+**Segunda ronda (4-oct, 14:00-17:00 UTC): barrido de 21 familias.** Walk-forward
+causal sobre 41 cortes de la revision 4: senos con 1-3 armonicos, pesos
+recientes (vida media 4-12 h), ventanas, periodos de 3 a 10 h, AR(2-4) por
+estacion en niveles y en diferencias, seno de periodo libre por minimos
+cuadrados no lineales, y mezclas entre ellos. Los AR y el periodo libre salen
+peores que la persistencia+tendencia; el resto queda dentro de +-0.3 de la
+produccion, salvo dos cambios que se subieron:
+
+| Cambio | Muestra de seleccion | Fuera de muestra |
+|---|---:|---:|
+| 2 armonicos desde 8 h (`111379b`) | 82.63 -> 84.15 (2a mitad 82.72 -> 85.24) | ciclos oficiales 04:00Z 82.68 y 05:00Z 85.65, los mejores de la revision 4 |
+| Peso 0.7 desde 10 h (`bf27044`) | 84.15 -> 84.58 | 10 cortes 02:15-04:30Z: 87.33 -> 87.88, p10 85.02 -> 85.99 |
+
+Desde `111379b`, `relay.yml` hace `git pull` antes de cada ciclo. El relay
+anterior se cancelo a mano para que el modelo entrara de inmediato (14:21 UTC).
+Ahora cualquier arreglo entra en el ciclo siguiente, sin esperar las 5 h 40 min
+de vida del job.
+
+Nota de evaluacion: `cycle_metrics` puede guardar dos filas para el mismo ciclo
+cuando se evalua con la verdad parcial y luego con la completa (05:00Z: 85.65 y
+85.99). El acumulado oficial lo calcula el profesor y no depende de esta tabla.
