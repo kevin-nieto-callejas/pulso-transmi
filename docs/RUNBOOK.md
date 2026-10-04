@@ -21,23 +21,36 @@ forma más fácil de perder una ventana.
 
 ## 1. Cuando el reloj arranque
 
-El sistema lo detecta solo: la inferencia corre en los minutos
-`3,13,23,33,43,53` y cada corrida vigila 8 minutos más. No hay que
-despertarlo.
+El sistema lo detecta solo y **no depende del PC** (hallazgo #39):
+`relay.yml` es un job que vive ~5 h 40 min en GitHub, consulta el ciclo cada
+45 s y, cuando abre uno, corre ingesta, inferencia y evaluación. Al terminar
+se relanza solo. Si la cadena se rompe, el cron `7,27,47` la revive.
+`inference.yml` (cron cada 5 min, que GitHub en la práctica dispara cada 3-5 h)
+queda de respaldo. El vigilante local `ops/nightwatch.ps1` ya no hace falta.
+
+Para comprobar que la cadena está viva, tiene que haber una corrida de `relay`
+`in_progress`:
+
+```bash
+gh run list -R kevin-nieto-callejas/pulso-transmi --workflow=relay.yml --limit 3
+# Si no hay ninguna en curso:
+gh workflow run relay.yml -R kevin-nieto-callejas/pulso-transmi
+```
 
 **Revisar en la primera hora, en este orden:**
 
 1. **¿Llegaron datos nuevos?** En el dashboard, el recuadro "Recolector"
-   debe mostrar filas ingeridas mayores que cero. Hasta ahora todas las
-   corridas decían `no_new_data` porque el stream estaba vacío.
-2. **¿Se detectó el ciclo?** En Actions, la corrida de `inference` debe
-   decir `Ciclo abierto: cyc_...` en vez de `Sin ciclo abierto`.
+   debe mostrar el estado y las filas ingeridas de las corridas recientes.
+2. **¿Se detectó el ciclo?** En Actions, el log de la corrida de `relay` debe
+   tener un grupo `HH:MM:SS ciclo cyc_...` con `Submission ACEPTADA`.
 3. **¿La entrega quedó aceptada?** En el portal, recuadro "Última entrega":
    estado **ACEPTADA** y cobertura 48 predicciones.
-4. **¿Se está evaluando?** Una o dos horas después, el dashboard debe
-   empezar a mostrar accuracy por ciclo.
+4. **¿Se está evaluando?** Cuando llegan los valores reales, el dashboard
+   muestra accuracy por ciclo y estación; puede haber demora respecto al
+   recibo porque la realidad se publica después.
 
-Si los cuatro salen bien, no hay nada más que hacer en todo el día.
+Si los cuatro salen bien, deja que la automatización continúe y revisa de
+nuevo tras la siguiente apertura o ante una alerta.
 
 ---
 
@@ -48,15 +61,17 @@ de alarmarse por un número feo.**
 
 | Señal | Normal | Cuándo preocuparse |
 |---|---|---|
-| Accuracy de un ciclo | 85-86 de media | Un ciclo suelto en 79 es normal (p05). El mínimo medido fue 56 |
-| Variación entre ciclos | ±2.6 puntos | Solo importa si la **media de 24 h** cae |
+| Accuracy de un ciclo | Dependía del régimen; 85-86 antes del drift | En las revisiones 3 y 4 puede caer mucho durante la transición; comparar ventanas equivalentes |
+| Variación entre ciclos | ±2.6 puntos antes del drift | En drift fuerte manda la tendencia reciente y la cobertura, no el umbral histórico aislado |
 | Duración de `inference` | ~9 min | Es la vigilancia de 8 min, no un cuelgue |
 | Corridas del collector | ~4 por hora | Que falten algunas es esperable: GitHub descarta corridas |
 | Alarmas de drift | ~0.4 por semana | Varias al día = algo cambió de verdad |
 
-**El error más caro que se puede cometer el lunes es reentrenar por un ciclo
-malo.** Un ciclo tiene 4 puntos por estación; con tan poca muestra, bajar a
-79 no significa nada. Por eso el detector mira ventanas de 24 horas.
+**El error más caro sigue siendo reaccionar a un ciclo aislado.** Un ciclo
+tiene cuatro puntos por estación. En la fase de drift el profesor pidió un
+chequeo explícito de los últimos seis ciclos contra 85%; `retrain-watch.yml`
+automatiza ese chequeo y `train.py` solo promueve si el candidato supera al
+champion bajo la misma validación temporal.
 
 ---
 
@@ -64,11 +79,13 @@ malo.** Un ciclo tiene 4 puntos por estación; con tan poca muestra, bajar a
 
 ### No se entregó un ciclo
 
-**Primero:** mirar Actions. ¿La corrida de `inference` se ejecutó?
+**Primero:** mirar Actions. ¿Hay una corrida de `relay` en curso? Si no, lanzarla
+(ver la sección 1). Después, ¿la corrida de `inference` se ejecutó?
 
-- **No corrió** → GitHub descartó la corrida (pasa; por eso hay 6 intentos
-  por hora). Si se perdió el ciclo, ya no se recupera: **no hacer nada**, el
-  siguiente ciclo entra solo.
+- **No corrió** → GitHub pudo descartar o retrasar una corrida. Mientras el
+  ciclo siga abierto, volver a consultar estado y recibo; si no hay aceptación,
+  disparar `inference.yml` una vez. La concurrencia y la comprobación de
+  idempotencia evitan duplicar un ciclo ya aceptado.
 - **Corrió y falló** → abrir el log y buscar el error. Ver abajo.
 - **Corrió y dijo "Sin ciclo abierto"** → puede ser que la ventana ya había
   cerrado. Verificar `closes_at` del ciclo.
@@ -136,7 +153,14 @@ python src/check_contract.py
 ```
 
 Dice qué cambió. Si no afecta endpoints ni campos que usamos, actualizar
-`contract/expected.json` con el SHA nuevo y listo.
+`contract/expected.json` con el SHA nuevo y listo. **Commitearlo y subirlo en el
+mismo momento**: si la alarma se queda en rojo, el siguiente cambio de verdad
+llega como un correo más, idéntico a los anteriores. Así pasó con el contrato
+v2 (hallazgo #37): 5 días en rojo por un `expected.json` sin commitear.
+
+Ojo: este vigilante no ve cambios en el formato de las observaciones, porque
+la API no publica ese esquema. Esa falla se nota en el collector (`KeyError`
+en `ingest.py`) y en el aviso `el ancla va N min por detras` de `infer.py`.
 
 ### El accuracy cae de verdad
 

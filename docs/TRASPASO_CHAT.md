@@ -68,12 +68,12 @@ Quedan ~27 ciclos: remontar al 1º es muy difícil, pero el 5º está a 0.31 y e
    tendencia 0.3–0.7, ventana de pendiente, detectar si aparece una nueva periodicidad de 6–12 h —
    el detector actual solo busca P entre 2 h y 6 h).
 3. Observaciones se liberan cada 30 min: el último dato puede ir 15–30 min atrás del data_cutoff.
-4. Documentar para la nota (lo pide `fase-final.md`): cambio detectado, impacto, reparación,
-   primera entrega recuperada, evolución de cobertura/accuracy. Agregar hallazgos #37 (v2) y
-   #38 (rev 4) en `docs/HALLAZGOS.md` y actualizar `contract/expected.json` (API ya va en 0.9.0).
-5. Hay cambios locales sin commitear de una sesión anterior en README.md, docs/*.md,
-   contract/expected.json e inference.yml: revisarlos antes de commitear.
-6. Seguridad: revocar el PAT de GitHub que se pegó en un chat anterior (`github_pat_11B2IT4OY0...`)
+4. ~~Documentar para la nota~~ **Hecho 4-oct ~02:40 UTC:** hallazgos #37 (v2 + alarma en
+   rojo 5 días), #38 (rev 4), #39 (relay sin PC); sección "Fase final" en INFORME_FINAL;
+   bitácora, README, RUNBOOK y HANDOFF al día; `contract/expected.json` en 0.9.0 (alarma en verde).
+5. ~~Cambios locales sin commitear~~ **Hecho:** revisados e integrados en el mismo commit.
+   Además `relay.yml` ahora corre `evaluate.py` tras cada entrega.
+6. Seguridad: revocar el PAT de GitHub que se pegó en un chat anterior
    y considerar rotar la service-role key de Supabase y la API key de Pulso al terminar.
 
 ## Comandos útiles

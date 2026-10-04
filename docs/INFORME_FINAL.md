@@ -6,9 +6,10 @@ MLOps · Ciencia de Datos · Universidad Externado de Colombia
 Repositorio: https://github.com/kevin-nieto-callejas/pulso-transmi
 Dashboard: https://pulso-transmi-one.vercel.app
 
-> Este informe cubre lo construido hasta el inicio de la ventana competitiva.
-> Los resultados de la competencia en vivo se añadirán al cierre; lo que sigue
-> es lo que puede afirmarse con evidencia hoy.
+> Actualización operativa: 1 de octubre de 2026. La fase competitiva sigue
+> activa y cierra el 2 de octubre a las 23:59, hora de Bogotá. Los números de
+> leaderboard son una fotografía al momento indicado; se actualizará el cierre
+> final después del último ciclo.
 
 ---
 
@@ -27,12 +28,65 @@ modelo es una pieza reemplazable.
 | `rollback.py` | Vuelve a un champion anterior verificado | bajo demanda |
 | `check_contract.py` | Avisa si el docente cambia el contrato | 4 veces al día |
 
-Estado medible al cierre de esta etapa: 51.840 observaciones migradas sin
-duplicados, más de 40 corridas del recolector registradas y creciendo, 5
-versiones de modelo, una submission aceptada oficialmente, 30 pruebas
-automatizadas en verde. Las cifras vivas se pueden consultar en el
-[dashboard](https://pulso-transmi-one.vercel.app), no hace falta creerle a
-este documento.
+Estado medible al 1/10: 63.660 observaciones, 234 ciclos oficiales con
+submission aceptada de 48/48 predicciones, cero ciclos omitidos y cero
+duplicados, 44 versiones de modelo registradas y 70 pruebas automatizadas en
+verde. Las cifras vivas se consultan en el
+[dashboard](https://pulso-transmi-one.vercel.app).
+
+## Resultados de la competencia al 1 de octubre
+
+La auditoría de ciclos oficiales confirmó 234/234 entregas aceptadas con
+cobertura de 100%. A las 23:35 hora de Bogotá, el leaderboard acumulado
+marcaba puesto **6**, accuracy **75.31** y cobertura **100%**. Este score mide
+la demanda bajo el drift activo; no es comparable directamente con el 86.76
+de validación del champion sobre 45 días de histórico estático.
+
+El escenario original agotó su horizonte el 28 de septiembre. La API del
+profesor pasó a 0.8.0 y habilitó una continuación de drift controlado hasta el
+2 de octubre a las 23:59 Bogotá. El contrato de submission y los campos
+consumidos por el pipeline permanecieron compatibles. La revisión 3 mostró una
+onda de aproximadamente cuatro horas: en el análisis de 231 ciclos, la capa
+adaptativa por onda obtuvo 83.29 frente a 80.14 del pipeline anterior, sin
+regresión observada en el régimen normal. Esto es evidencia retrospectiva del
+periodo analizado, no una garantía para cada ciclo futuro.
+
+Durante la fase, `retrain-watch.yml` evalúa el promedio de los seis últimos
+ciclos oficiales contra el umbral docente de 85%. Si solicita reentrenar,
+`train.py` solo promueve al candidato cuando supera al champion con la misma
+validación temporal. El champion base `catboost_sin_semanal` conserva 86.76 de
+validación; la adaptación de producción usa información reciente disponible
+hasta el corte y no altera las observaciones históricas.
+
+
+## Fase final (3 y 4 de octubre): evolución de la fuente
+
+La guía de la fase final (`docs/fase-final.md` del profesor) pide registrar
+el cambio detectado, su impacto, las decisiones de reparación, la primera
+entrega recuperada y la evolución de cobertura y accuracy. El detalle está en
+los hallazgos #37 a #39 y en la bitácora. En resumen:
+
+| | |
+|---|---|
+| **Cambio 1: fuente** | Contrato de observación v2: `measurement.value` en texto (o `null` con `quality=missing`) en lugar de `demand`. La ingesta cayó con `KeyError` y la inferencia siguió entregando con datos de 3 h atrás, sin ningún error visible. |
+| **Cambio 2: demanda** | Revisión 4 del drift: desaparece la onda de 4 h y aparecen tendencias lentas. La onda corta seguía activa y acertaba cerca de 0. |
+| **Impacto** | Ciclo `20260920T130000Z`: 19.84 de accuracy. Ciclos `12:00Z` y `14:00Z` sin entregar, porque el disparador puntual vivía en el PC y el PC estaba apagado. |
+| **Reparación** | Ingesta v1+v2 que omite los faltantes (no son cero), re-ingesta de las 3 h perdidas; la onda corta exige acierto en las últimas 2 h y entra persistencia + ½ tendencia; `relay.yml` entrega desde la nube; `contract-watch` vuelve a verde con 0.9.0. |
+| **Primera entrega recuperada** | Ciclo `20260920T150000Z`, 4-oct 01:57 UTC, con datos frescos. |
+| **Evidencia de la adaptación** | Backtest causal rev 4: mezcla champion+perfil 64.0, persistencia 72.1, persistencia+½ tendencia 72.6; pipeline completo desde las 13:15 virtuales: 78-83. |
+| **Cobertura y accuracy** | 4-oct 02:22 UTC: 186/188 ciclos (98.9%), acumulado 76.26, puesto 6 de 32. |
+
+**Entrenamientos.** En la fase final no se promovió ningún modelo nuevo y el
+champion sigue siendo `catboost_sin_semanal-20260921T161638Z`. La adaptación a
+la revisión 4 no es un reentrenamiento: es una regla causal que solo usa
+observaciones anteriores al `data_cutoff` de cada ciclo, y se validó con
+backtest sobre ciclos ya resueltos. `retrain-watch.yml` sí entrenó candidatos
+el 2-oct (12 versiones, datos exportados de Supabase hasta su `data_cutoff`
+respectivo). Tras el arreglo del contexto (#36), esos candidatos empezaron a
+ver el drift en su validación: bajaron de 86.74 a ~83. Ninguno superó al
+champion bajo la regla de promoción, así que todos quedaron como `candidate`.
+Esa comparación tiene un límite que hay que decir: champion y candidatos se
+validaron sobre ventanas distintas, y la de los candidatos incluye el drift.
 
 ---
 
@@ -240,17 +294,14 @@ existe únicamente porque ese error ya se había cometido antes en el proyecto.
 
 ## 6. Limitaciones honestas
 
-- **No hay evaluación con datos reales.** La ronda de práctica pedía
-  predicciones para un instante cuyo valor real nunca se publicó, así que las
-  12 predicciones emitidas no son evaluables. El código de evaluación está
-  escrito y probado con datos sintéticos, pero `prediction_evaluations` y
-  `cycle_metrics` están vacías.
+- **El resultado de competencia sigue sujeto al cierre.** Los ciclos ya se
+  evalúan con datos reales, pero el escenario continúa y el leaderboard puede
+  cambiar hasta el último ciclo.
 - **86.76 se midió sobre 45 días de histórico estático.** No hay drift en esos
   datos. El número puede no sostenerse cuando la ciudad cambie.
-- **El reentrenamiento no está automatizado, a propósito.** El sistema decide
-  *si* conviene reentrenar; ejecutarlo sigue siendo manual. Automatizar la
-  promoción sin haber visto nunca una degradación real sería confiar en
-  umbrales que no se han puesto a prueba.
+- **El reentrenamiento condicionado sí está automatizado durante esta fase.**
+  El chequeo usa seis ciclos y el umbral explícito del profesor; la promoción
+  permanece protegida por la comparación temporal del entrenamiento.
 - **Los umbrales de drift están justificados, no validados.** Salen de
   mediciones propias, pero ninguno se ha enfrentado todavía a un drift real.
   Sí se validó, en cambio, que **no disparen cuando no deben**: el simulacro
@@ -275,16 +326,15 @@ existe únicamente porque ese error ya se había cometido antes en el proyecto.
 
 ## 7. Qué haríamos después
 
-**Inmediato, cuando la competencia genere datos**
-1. Confirmar que la evaluación mide lo que se espera en los primeros ciclos.
-2. Revisar si los umbrales de drift disparan cuando deben, y ajustarlos con
-   evidencia en vez de con razonamiento.
-3. Vigilar la brecha entre el accuracy de validación y el real: si es grande,
-   la validación temporal está siendo optimista.
+**Al cierre de la fase, 2 de octubre**
+1. Esperar la evaluación del último ciclo y capturar leaderboard final.
+2. Auditar conteo final de ciclos, aceptaciones, cobertura y duplicados.
+3. Registrar el champion vigente y el resultado de la última revisión de
+   reentrenamiento.
+4. Actualizar este informe con timestamp y conservar la diferencia entre
+   validation accuracy y accuracy de competencia.
 
 **A mediano plazo**
-4. Reentrenamiento automático, **solo después** de haber visto al menos una
-   degradación real y comprobado que la decisión habría sido correcta.
 5. Ventana móvil de entrenamiento: que el modelo olvide datos viejos cuando el
    patrón cambie, en vez de promediarlos con los nuevos.
 6. Predicción por intervalos en vez de valor único, para saber cuándo el modelo

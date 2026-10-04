@@ -12,13 +12,18 @@ análisis, esquema de datos, migración— es trabajo propio del equipo.
 
 ## Estado actual
 
-Las cinco fases de la guía están implementadas y operando. Lo único que
-falta es evidencia con ciclos reales, que depende de que el docente active
-la competencia: el reloj sigue en `waiting`.
+Las cinco fases de la guía están implementadas y operando. La competencia
+está en su **fase final** (API `0.9.0`: drift revisión 4 y contrato de
+observación v2), que cierra el **domingo 4 de octubre de 2026 a las 23:59,
+hora de Bogotá**.
 
-**Estado en una línea:** champion `catboost_sin_semanal` con 86.76 de
-accuracy, una submission aceptada en la ronda de práctica, collector e
-inferencia entregando solos, 36 tests en verde y los cinco bonos cubiertos.
+**Estado verificado el 4 de octubre de 2026, 02:22 UTC:** puesto **6 de 32**
+con **76.26** de accuracy acumulada y cobertura de **98.9%** (186/188 ciclos).
+Champion base `catboost_sin_semanal` (86.76 de validación) más una capa
+adaptativa para el drift: onda corta (rev 3) y persistencia + tendencia
+(rev 4). Las entregas corren en la nube con `relay.yml`, sin depender de ningún
+PC. 71 tests en verde. La fase final está contada en
+[`docs/INFORME_FINAL.md`](docs/INFORME_FINAL.md) y en los hallazgos #37-#39.
 
 - ✅ SDK instalado, histórico descargado (12 estaciones, 45 días, 51.840
   observaciones).
@@ -48,15 +53,14 @@ inferencia entregando solos, 36 tests en verde y los cinco bonos cubiertos.
   Supabase Storage) — ver [`src/train.py`](src/train.py) y la sección
   "Modelo" abajo.
 - ✅ Collector incremental idempotente (`src/ingest.py`), **automatizado
-  vía GitHub Actions** (`.github/workflows/collector.yml`) — probado en vivo contra el stream real (vacío, reloj
-  en `waiting`); deja evidencia en `collector_runs` en cada corrida,
-  incluso sin novedades.
+  vía GitHub Actions** (`.github/workflows/collector.yml`) — probado con el
+  stream oficial; al corte de esta actualización conserva 63.660
+  observaciones y evidencia cada corrida en `collector_runs`.
 - ✅ Inferencia y submission (`src/infer.py` +
-  `.github/workflows/inference.yml`): consulta el ciclo vigente, arma el
-  batch y lo firma con una llave de idempotencia estable. **Entrega real
-  aceptada** en la ronda de práctica del 18/09
-  (`sub_b64352e18de5486ead9478e66d57c523`, 12/12, `is_official: true`).
-  Termina sin error mientras no haya ciclo abierto.
+  `.github/workflows/relay.yml`, con `inference.yml` de respaldo): consulta el ciclo vigente, arma las 48
+  predicciones y usa una llave de idempotencia estable. La auditoría del
+  1/10 confirma **234 ciclos oficiales, 234 submissions aceptadas, cero
+  faltantes y cero duplicados**.
 - ✅ Monitoreo, drift y decisión de reentrenamiento (`src/evaluate.py`):
   une predicción con realidad, calcula accuracy por estación y ciclo,
   vigila las tres señales de la guía y decide mantener/investigar/
@@ -69,13 +73,12 @@ inferencia entregando solos, 36 tests en verde y los cinco bonos cubiertos.
 - ✅ MLflow (bono): `src/sweep.py` explora al azar las tres familias de
   boosting y registra cada intento; `src/revalidar.py` vuelve a medir los
   mejores con el protocolo oficial antes de considerarlos promovibles.
-- ✅ Pruebas automatizadas (bono): 36 tests en CI, más una batería de
+- ✅ Pruebas automatizadas (bono): 71 tests en CI, más una batería de
   esfuerzo (`src/stress_test.py`) y un simulacro de ciclo completo
   (`src/simulate_cycle.py`).
-- ⬜ Evaluación de accuracy con ciclos reales: el código está completo y
-  ejercitado de punta a punta, pero `prediction_evaluations` y
-  `cycle_metrics` siguen vacías porque la ronda de práctica pidió un
-  instante cuyo valor real nunca se publicó. Depende del docente.
+- ✅ Evaluación con ciclos reales: `prediction_evaluations` y
+  `cycle_metrics` alimentan el dashboard, el monitoreo de drift y el
+  reentrenamiento condicionado por los últimos seis ciclos.
 
 ## Collector incremental
 
@@ -119,15 +122,14 @@ python src/ingest.py
 esperadas → Inferencia y submission" de la guía:
 
 1. Consulta `/v1/clock` y `/v1/forecast-cycles/current`. Si no hay ciclo
-   abierto, **termina sin error** — ese es el comportamiento esperado
-   ahora mismo (reloj en `waiting`) y también el comportamiento normal
-   entre ciclos una vez activa la competencia.
+   abierto, **termina sin error** — es el comportamiento normal entre
+   ventanas o después del cierre de una fase.
 2. Si hay ciclo abierto, usa el `data_cutoff`, los targets
    (`station_id` + `target_at`) y el `closes_at` que devuelve la API —
    nunca los calcula ni los asume por horario local.
 3. Carga el champion vigente desde Supabase Storage y reconstruye, por
-   estación, las features tal como se veían en `data_cutoff` (histórico
-   de hasta 8 días atrás, para cubrir `lag_672`).
+   estación, las features tal como se veían en `data_cutoff`, rellenando el
+   contexto histórico que la fuente ya no actualiza con medianas causales.
 4. Arma el batch completo (hasta 100 predicciones, normalmente 48 =
    12 estaciones × 4 horizontes) y lo firma con una llave de idempotencia
    estable — el mismo ciclo y el mismo modelo generan siempre la misma
@@ -141,9 +143,11 @@ camino "sin ciclo abierto", el armado del batch (horizonte correcto por
 target, valores recortados a `[0, 100000]` como exige el contrato,
 estación desconocida levanta error), la llave de idempotencia estable, la
 detección de "este ciclo ya fue entregado" y la forma exacta del payload
-de `SubmissionInput`. En total el repo corre 36 tests en CI.
+de `SubmissionInput`. En total el repo corre 71 tests en CI.
 
-Automatizado vía `.github/workflows/inference.yml`. Los minutos son una
+Automatizado vía `.github/workflows/relay.yml`: un job que consulta el ciclo
+cada 45 s durante ~5 h 40 min y se relanza solo al terminar (hallazgo #39).
+`.github/workflows/inference.yml` queda de respaldo con su cron. Los minutos son una
 recomendación operacional: la decisión real siempre la toma `src/infer.py`
 consultando el estado de la API, nunca el cron por sí solo.
 
@@ -430,7 +434,7 @@ src/infer.py            Inferencia + submission por ciclo (Fase 4)
 src/evaluate.py         Evaluacion, drift y decision de reentrenamiento (Fase 5)
 src/check_contract.py   Avisa si el docente cambia el contrato de la API
 src/check_model.py      Comprueba que el champion cargue y prediga
-.github/workflows/      ci.yml · collector.yml · inference.yml · contract-watch.yml
+.github/workflows/      relay.yml · inference.yml · collector.yml · contract-watch.yml · retrain-watch.yml · ci.yml
 ```
 
 **Lo que se corre a mano**
@@ -455,7 +459,7 @@ contract/expected.json  Estado del contrato del docente que ya revisamos
 dashboard/              Pagina estatica desplegada en Vercel (bono)
 eda/                    Analisis exploratorio, graficas, reportes de experimentos
 docs/                   Bitacora, informe final, runbook, entidad-relacion, traspaso
-tests/                  36 tests: SDK, collector, inferencia y monitoreo
+tests/                  71 tests: SDK, collector, inferencia, drift y adaptación
 artifacts/              Modelos entrenados y cache local (ignorado por git)
 ```
 

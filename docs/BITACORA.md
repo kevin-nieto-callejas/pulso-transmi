@@ -18,8 +18,8 @@ que avanza el proyecto, no al final.
 | 1 · Comprender | Completa |
 | 2 · Construir la memoria | Completa y automatizada |
 | 3 · Experimentar | Completa (13 candidatos + baseline + 657 experimentos en MLflow) |
-| 4 · Operar | Submission aceptada; workflows entregando solos |
-| 5 · Aprender del error | Codigo completo y probado; falta evidencia con ciclos reales |
+| 4 · Operar | Entregas oficiales automáticas; desde el 4-oct, relay en la nube sin depender del PC |
+| 5 · Aprender del error | Evaluación real por ciclo; drift rev 3 y rev 4 detectados y adaptados |
 
 **Modelo champion vigente:** `catboost_sin_semanal-20260921T161638Z` —
 accuracy **86.76** (validación temporal de 5 cortes, 4 horizontes). CatBoost
@@ -395,21 +395,52 @@ frontera con datos reales de ambos lados.
 
 ---
 
-## Qué falta
+## Estado de operación — 1 de octubre de 2026
 
-- **Evidencia de evaluación con datos reales:** el código está completo y
-  ejercitado de punta a punta con un simulacro, pero la ronda de práctica
-  pidió un instante cuyo valor real nunca se publicó, así que
-  `prediction_evaluations` y `cycle_metrics` siguen vacías. Depende de que
-  arranque la competencia.
-- **Cierre del informe final** con los resultados reales de la ventana
-  competitiva. El documento ya está escrito: [`INFORME_FINAL.md`](INFORME_FINAL.md).
+El escenario oficial está activo en la continuación de drift de API 0.8.0.
+La auditoría del 1/10 encontró **234 ciclos oficiales, 234 entregas aceptadas,
+cero faltantes y cero duplicados**, con cobertura completa. El leaderboard
+marcaba puesto 6 y 75.31 de accuracy acumulada a las 23:35 Bogotá. La cifra de
+validación del champion (86.76) corresponde al histórico estático y no debe
+confundirse con el resultado en competencia.
+
+`prediction_evaluations` y `cycle_metrics` ya contienen evaluaciones reales.
+La revisión 3 del drift presenta una onda aproximada de cuatro horas. El
+hallazgo #35 midió 83.29 con la adaptación periódica frente a 80.14 con el
+pipeline anterior sobre 231 ciclos. `retrain-watch.yml` revisa los seis últimos
+ciclos contra el umbral de 85% y la regla de promoción protege al champion.
+
+El cierre del 2 de octubre se extendió: el profesor abrió una fase final
+hasta el 4 de octubre (ver la sección siguiente).
 
 Los cinco bonos de la guía están cubiertos: dashboard en Vercel, MLflow,
 pruebas automatizadas, estrategia de rollback y monitoreo de drift más allá
 de la métrica de desempeño.
 
 ---
+
+## Fase final — 3 y 4 de octubre de 2026
+
+El profesor reabrió el escenario para la fase final (cierre: **domingo 4 de
+octubre, 23:59 Bogotá**) con dos cambios a la vez: la **revisión 4 del drift**
+y el **contrato de observación v2** (API 0.9.0). Lo que pasó, en orden:
+
+| Hora (UTC) | Evento |
+|---|---|
+| 3-oct ~22:50 | Reapertura. El stream trae `measurement.value` en vez de `demand` y `ingest.py` cae con `KeyError`. Nadie lo nota: `contract-watch` llevaba 5 días en rojo por un `expected.json` sin commitear (hallazgo #37). |
+| 3-oct, noche | El PC que disparaba las entregas puntuales se apaga y se pierden los ciclos virtuales `12:00Z` y `14:00Z` (hallazgo #39). |
+| 4-oct 00:02 | Ciclo `13:00Z` entregado con datos de 3 h atrás y la onda corta vieja: **19.84** de accuracy. |
+| 4-oct ~01:50 | Diagnóstico. `2dcd8aa`: ingesta v1+v2 y re-ingesta de las 3 h perdidas. |
+| 4-oct 01:57 | Ciclo `15:00Z`: **primera entrega recuperada** con datos frescos. |
+| 4-oct ~02:00 | `dad2211`: `relay.yml`, entregas en la nube sin PC. `18d5f68`: revisión 4 del drift; la onda corta se apaga sola y entra persistencia + ½ tendencia (hallazgo #38). |
+| 4-oct 02:17 | Verificado que el relay se relanza solo. |
+| 4-oct ~02:30 | `contract/expected.json` → 0.9.0 (alarma en verde de nuevo) y `evaluate.py` dentro del relay. |
+
+Leaderboard oficial a las 02:22 UTC del 4-oct: **puesto 6 de 32**, accuracy
+acumulada **76.26**, cobertura **98.9%** (186 de 188 ciclos). El 5º está 0.31
+puntos arriba y el 7º 0.05 abajo. El acumulado arrastra el 1-oct (revisión 3
+antes de la onda corta, media ~38); con la onda corta hubo 37 ciclos seguidos
+entre 90 y 94.
 
 ## Verificaciones hechas sobre el sistema
 
@@ -424,7 +455,7 @@ Registradas porque la guía valora poder demostrar el estado, no afirmarlo:
   historial del repositorio.
 - Reproducibilidad: el artefacto del champion se descarga desde Storage y
   vuelve a predecir en un entorno limpio (así opera GitHub Actions).
-- Pruebas: 36 tests automatizados en CI, incluidos casos de regresión de cada
+- Pruebas: 71 tests automatizados en CI, incluidos casos de regresión de cada
   error descrito arriba.
 - Ciclo completo: un simulacro con 48 targets y cuatro horizontes recorre
   predicción, emparejamiento con la realidad, métricas y limpieza, y verifica

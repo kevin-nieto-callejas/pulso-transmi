@@ -781,3 +781,102 @@ quede sin datos en unos dias) y `train.py`. El reentreno ya puede ver el
 drift. De paso, la capa adaptativa en `infer.py` quedo envuelta en
 try/except por target: un error en UNA estacion entrega esa con el champion
 solo, en vez de tumbar las 12.
+
+---
+
+## 37. El contrato de observacion cambio a v2 y la alarma ya llevaba 5 dias en rojo
+
+**Que paso:** al reabrir la fase final (3-oct ~22:50 UTC, API 0.9.0) el stream
+dejo de traer `demand`. Las observaciones con `observed_at` posterior a
+2026-09-20T12:00Z virtual llegan como `measurement.value` (texto decimal, o
+`null` con `quality=missing`), y una misma pagina puede mezclar v1 y v2
+(`docs/fase-final.md` del profesor). `ingest.py` hacia `r["demand"]` y se caia
+con `KeyError`. La inferencia no fallaba: seguia entregando con la ultima
+observacion que tenia, tres horas atras. Otra falla sin error visible.
+
+**Impacto medido:** el ciclo `20260920T130000Z` (entregado 4-oct 00:02 UTC)
+saco **19.84** de accuracy media por estacion, con datos de 3 h atras y la onda
+corta vieja todavia activa (ver #38). El `15:00Z` se entrego igual de ciego.
+
+**Por que no nos enteramos antes:** `contract-watch.yml` SI existia para esto,
+pero estaba en rojo sin parar desde el 28-sep 23:18 UTC. El `expected.json`
+actualizado a 0.8.0 se habia quedado sin commitear, asi que cada corrida
+fallaba por el mismo cambio viejo. Cuando llego 0.9.0, el correo nuevo era
+igual a los 15 anteriores. Ademas el vigilante no podia ver este cambio de
+ninguna forma: la OpenAPI no publica un esquema del registro de observacion,
+solo de `SubmissionInput` y `PredictionInput`.
+
+**Reparacion:** `observacion_a_fila()` en `ingest.py` normaliza v1 y v2, omite
+los `missing` (un faltante no es cero) y convierte el texto a entero. Se
+re-ingirieron las 3 h perdidas. `contract/expected.json` paso a 0.9.0 y al
+commit `a5f9d026` del profesor: la alarma vuelve a verde y vuelve a significar
+algo. Primera entrega recuperada con datos frescos: ciclo `20260920T150000Z`
+(4-oct 01:57 UTC).
+
+**Leccion:** una alarma que ya esta en rojo no avisa de nada nuevo. El
+vigilante sirve solo si se vuelve a poner en verde cada vez que se revisa un
+cambio, en el mismo commit que adapta el codigo.
+
+---
+
+## 38. Revision 4 del drift: se acabo la onda de 4 h y la onda corta acertaba ~0
+
+**Que paso:** el profesor activo la revision 4 (3-oct ~22:50 UTC). La onda de
+~4 h de la revision 3 (#35) desaparecio y en su lugar hay tendencias lentas
+de varias horas. El selector de onda corta mira 12 h hacia atras, asi que
+seguia viendo la onda vieja con 85% de acierto retrospectivo y la seguia
+copiando, mientras acertaba cerca de 0 en el regimen nuevo.
+
+**Que medimos** (backtest causal con datos rev 4, cortes 12:00-14:00 virtual,
+metrica oficial):
+
+| Estrategia | Accuracy |
+|---|---:|
+| Onda corta vieja (#35) | ~0-33 |
+| Mezcla champion + perfil | 64.0 |
+| Persistencia (ultimo valor) | 72.1 |
+| **Persistencia + 1/2 tendencia de la ultima hora** | **72.6** |
+| Pipeline nuevo completo, cortes desde 13:15 | **78-83** |
+
+**Reparacion** (`18d5f68`):
+1. `prediccion_periodica` exige ademas que la onda haya acertado >= 80% en
+   las **ultimas 2 h**, no solo en las ultimas 12. Se apaga sola cuando el
+   regimen cambia.
+2. Nueva `persistencia_tendencia`: ultimo valor real + 0.5 x pendiente de la
+   ultima hora x pasos hasta el target. Va despues de la onda y antes de la
+   extrapolacion extrema y la mezcla.
+
+**Consecuencia que hay que decir:** `persistencia_tendencia` devuelve valor
+siempre que la estacion tenga algun dato en las ultimas 2 h, asi que en la
+practica la extrapolacion extrema y la mezcla champion+perfil quedan como
+respaldo. El champion CatBoost sigue cargandose y es lo que se entrega si la
+capa adaptativa falla. Es una decision para el regimen de la revision 4 y el
+cierre del 4-oct; en regimen normal la mezcla le ganaba a la persistencia.
+71 tests pasan.
+
+**Leccion:** igual que en #35, el problema era la forma de la serie y no el
+modelo. Un detector que confirma una estructura necesita una ventana corta
+que la pueda desmentir. Si no, sigue creyendo en ella horas despues de que
+se acabo.
+
+---
+
+## 39. El cron de GitHub no alcanza para entregas puntuales: relay que se relanza solo
+
+**Que paso:** las entregas puntuales de los ultimos dias las disparaba un
+vigilante en el PC (`ops/nightwatch.ps1` + `workflow_dispatch`). El cron de
+`inference.yml` pide cada 5 min, pero GitHub lo despierta cada 3-5 h (ver #22).
+Al apagar el PC se perdieron los ciclos `20260920T120000Z` y `140000Z`.
+
+**Reparacion:** `.github/workflows/relay.yml`. Un job que vive ~5 h 40 min,
+consulta `/v1/forecast-cycles/current` cada 45 s y, en cuanto hay ciclo nuevo,
+corre `ingest.py`, `infer.py` y `evaluate.py`. Al terminar se relanza con
+`gh workflow run` (un `workflow_dispatch` hecho con `GITHUB_TOKEN` si crea
+corridas nuevas). Verificado: la corrida que termino a las 02:17:19 UTC del
+4-oct lanzo la siguiente a las 02:17:20. El cron `7,27,47` solo revive la
+cadena si se rompe, e `inference.yml` queda de respaldo. La idempotencia
+(llave por ciclo y modelo, y la consulta a `submissions`) evita entregas
+dobles entre los dos caminos. **Ya no depende del PC.**
+
+`evaluate.py` tambien entro al relay: antes solo corria en `collector.yml`,
+con el mismo problema de cron, y `cycle_metrics` llegaba con horas de atraso.

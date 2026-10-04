@@ -1,7 +1,9 @@
 # Traspaso de contexto — Pulso TransMi
 
-Documento para poner al día a una sesión nueva de Claude Code sobre el estado
-del proyecto. Corte: 21 de septiembre de 2026.
+Documento para poner al día a una sesión nueva sobre el estado del proyecto.
+Corte operativo: **4 de octubre de 2026, 02:30 UTC** (3 oct, 21:30 Bogotá). Los conteos y
+resultados cambian mientras el escenario siga activo; consulta API y Supabase
+antes de actuar.
 
 ---
 
@@ -62,7 +64,7 @@ https://bawwhejgcvlawfqualrj.supabase.co/rest/v1/observations?select=count&apike
 
 ---
 
-## 3. Lo último (21/09, tarde)
+## 3. Hallazgos del modelo base (21/09)
 
 Barrido de **657 experimentos** (`src/sweep.py`) sobre las tres familias de
 boosting. Hallazgo principal, confirmado con el protocolo oficial de 5
@@ -89,24 +91,29 @@ Consecuencia operativa: un CatBoost solo (19 MB) le ganó al ensamble de tres
 modelos (38 MB). La mitad de descarga por ciclo y dos dependencias menos en
 producción — la inferencia ya no necesita LightGBM ni XGBoost.
 
-## 4. Estado a 21/09
+## 4. Estado operativo a 4/10 (fase final)
 
 | | |
 |---|---|
-| **Reloj de competencia** | `waiting` — no ha empezado |
-| **Champion** | `catboost_sin_semanal-20260921T161638Z`, accuracy **86.76** |
-| **Tests** | 36, todos en verde |
-| **Experimentos** | 657 en MLflow + 13 candidatos oficiales |
-| **Commits** | 41 |
-| **Entregables obligatorios** | 10.5 de 11 |
-| **Bonos** | 5 de 5 |
+| **Cierre** | **Domingo 4 oct 2026, 23:59 Bogotá = lunes 5 oct 04:59 UTC** |
+| **API del profesor** | 0.9.0: drift revisión 4 + contrato de observación v2 (`docs/fase-final.md` del profesor) |
+| **Champion base** | `catboost_sin_semanal-20260921T161638Z`, validación 86.76 |
+| **Capa adaptativa** | onda corta (rev 3, #35) → persistencia + ½ tendencia (rev 4, #38) → extrapolación extrema → mezcla champion+perfil |
+| **Entregas** | `relay.yml` en la nube, sin PC (#39); `inference.yml` de respaldo |
+| **Leaderboard** | Puesto 6 de 32, accuracy acumulada 76.26, cobertura 98.9% (186/188) a las 02:22 UTC del 4/10 |
+| **Tests** | 71, todos pasan |
 
-Datos en Supabase: 51.840 observaciones · 4.320 de contexto · 12 estaciones ·
-46 corridas del collector · 5 versiones de modelo · 12 predicciones · 1
-submission aceptada · 2 señales de drift.
+Historia corta del drift: ~85 en régimen normal. El 1/10 (revisión 3, antes de
+la onda corta) promedió ~38 y hundió el acumulado. Con la onda corta hubo 37
+ciclos seguidos entre 90 y 94. La revisión 4 (3/10 ~22:50 UTC) acabó con la
+onda, y el cambio v2 de la fuente tumbó la ingesta. Los dos están reparados
+(#37, #38). Se perdieron los ciclos virtuales 12:00Z y 14:00Z cuando el PC se
+apagó.
 
-**Entrega de práctica aceptada:** `sub_b64352e18de5486ead9478e66d57c523`
-(`cyc_practice_20260918`, 12/12, `is_official: true`).
+El reentrenamiento condicionado está automatizado en
+`.github/workflows/retrain-watch.yml`: revisa los últimos seis ciclos contra
+85% y solo promueve si el candidato supera al champion con la misma validación
+temporal.
 
 ---
 
@@ -116,14 +123,14 @@ submission aceptada · 2 señales de drift.
 API del profe → collector → Supabase → experimentos/modelo
      ↑              (15 min)                    ↓
      └────────── GitHub Actions ←──── predicciones + submission
-                  (min 3,13,23,33,43,53)
+                  (relay, cada 45 s)
 ```
 
 | Script | Qué hace | Cuándo |
 |---|---|---|
 | `src/ingest.py` | Recolecta desde el cursor confirmado | cron `8,23,38,53` |
-| `src/infer.py` | Ciclo → 48 predicciones → entrega | cron `3,13,23,33,43,53` |
-| `src/evaluate.py` | Evalúa, mide drift, decide | tras cada recolección |
+| `src/infer.py` | Ciclo → 48 predicciones → entrega | `relay.yml` (cada 45 s) + respaldo `inference.yml` |
+| `src/evaluate.py` | Evalúa, mide drift, decide | tras cada entrega (relay) y cada recolección |
 | `src/train.py` | Compara 12 candidatos y promueve | manual, a propósito |
 | `src/rollback.py` | Vuelve a un champion anterior | bajo demanda |
 | `src/check_contract.py` | Avisa si el profe cambia algo | cron `17 6,12,18,23` |
@@ -133,7 +140,7 @@ API del profe → collector → Supabase → experimentos/modelo
 | `src/simulate_cycle.py` | Simulacro de ciclo completo | manual |
 | `src/stress_test.py` | Batería de esfuerzo | manual |
 
-**Workflows:** `ci.yml`, `collector.yml`, `inference.yml`, `contract-watch.yml`.
+**Workflows:** `relay.yml` (el principal), `inference.yml`, `collector.yml`, `contract-watch.yml`, `retrain-watch.yml`, `ci.yml`.
 
 ---
 
@@ -241,15 +248,12 @@ La llave publicable es de solo lectura: verificado, lectura 200 y escritura
 
 ## 10. Qué falta
 
-**Bloqueado por el profesor (el reloj sigue en `waiting`):**
-- Evaluación de accuracy con ciclos reales — `prediction_evaluations` y
-  `cycle_metrics` están vacías.
-- Señal de drift de rendimiento real.
-- Cierre del informe final con resultados de la competencia.
-
-**En nuestras manos:** nada pendiente. Se llegó a rendimientos decrecientes:
-más modelos y más features ya no mueven la aguja (estamos a ~3 puntos del
-techo teórico, y probar objetivo MAE y pesos por estación no dio nada).
+- Vigilar que la cadena de `relay.yml` siga viva hasta el cierre (siempre
+  tiene que haber una corrida `in_progress`).
+- Tras el cierre: cifras finales, leaderboard final y conclusiones en el
+  informe.
+- Seguridad: revocar el PAT de GitHub que se pegó en un chat anterior y rotar
+  la service-role key de Supabase y la API key de Pulso al terminar.
 
 ---
 

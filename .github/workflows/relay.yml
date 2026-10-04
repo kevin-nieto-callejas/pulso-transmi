@@ -57,6 +57,11 @@ jobs:
               echo "::group::$(date -u +%H:%M:%S) ciclo $CYC"
               python src/ingest.py || echo "ingest fallo; se entrega con lo que haya"
               if PULSO_POLL_MINUTES=2 PULSO_POLL_INTERVAL_SECONDS=30 python src/infer.py; then LAST="$CYC"; fi
+              # La evaluacion vivia solo en collector.yml, que GitHub dispara
+              # cada 3-5 h: cycle_metrics (dashboard, retrain-watch, evidencia
+              # de la fase final) llegaba con horas de atraso. Va despues de
+              # entregar y nunca la bloquea.
+              timeout 300 python src/evaluate.py > /tmp/eval.log 2>&1 && tail -5 /tmp/eval.log || echo "evaluate fallo o tardo; se sigue"
               echo "::endgroup::"
             fi
             sleep 45
