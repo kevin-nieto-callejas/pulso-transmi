@@ -6,10 +6,8 @@ MLOps · Ciencia de Datos · Universidad Externado de Colombia
 Repositorio: https://github.com/kevin-nieto-callejas/pulso-transmi
 Dashboard: https://pulso-transmi-one.vercel.app
 
-> Actualización operativa: 4 de octubre de 2026, 22:15 UTC. La fase final
-> cierra el 4 de octubre a las 23:59, hora de Bogotá (5 de octubre, 04:59 UTC).
-> Los números de leaderboard son una fotografía al momento indicado; el cierre
-> final se registra después del último ciclo.
+> Cierre: 5 de octubre de 2026, 04:59 UTC (4 de octubre, 23:59 Bogotá).
+> Resultado final: **puesto 5 de 32, accuracy acumulada 76.96, cobertura 99.1%**.
 
 ---
 
@@ -89,6 +87,39 @@ ver el drift en su validación: bajaron de 86.74 a ~83. Ninguno superó al
 champion bajo la regla de promoción, así que todos quedaron como `candidate`.
 Esa comparación tiene un límite que hay que decir: champion y candidatos se
 validaron sobre ventanas distintas, y la de los candidatos incluye el drift.
+
+## Resultado final (cierre: 5 de octubre de 2026, 04:59 UTC)
+
+| | |
+|---|---|
+| **Puesto** | **5 de 32** |
+| **Accuracy acumulada** | **76.96** (215 ciclos resueltos) |
+| **Cobertura** | 99.1%: 286 entregas oficiales aceptadas; solo faltan los 2 ciclos del 3-oct en que el disparador vivía en el PC apagado (hallazgo #39) |
+| **Top 4** | Isaias Céspedes 81.40 · John Bernal 81.36 · Daniela González 79.86 · Mateo Hoyos 77.95 |
+
+Evolución en la fase final: puesto 6 con 76.26 al iniciar el 4-oct, y puesto 5
+con 76.96 al cierre (+0.70 en un día).
+
+**Accuracy oficial por versión del modelo en la revisión 4** (media de los
+ciclos en que cada versión estuvo en producción):
+
+| Versión | Ciclos | Media |
+|---|---:|---:|
+| Persistencia + ½ tendencia (#38) | 6 | 76.62 |
+| Onda larga, 1 armónico (#40) | 6 | 78.23 |
+| Onda larga, 2 armónicos (#40) | 3 | 85.20 |
+| 2 armónicos + peso 0.7 (#40) | 6 | 85.64 |
+| + corrección LightGBM del residuo (#42) | 5 | **86.73** |
+
+Cada cambio se subió solo después de ganar en un backtest causal y, salvo el
+primero, fuera de la muestra en que se eligió. Las medias por versión cubren
+pocos ciclos y franjas distintas del día, así que muestran una dirección, no
+una comparación controlada; la comparación controlada está en los hallazgos.
+
+**Por qué el puesto no subió más:** el acumulado promedia todos los ciclos
+desde el 21-sep. Lo hundieron el 1-oct (revisión 3 antes de la onda corta,
+media ~38) y los ciclos ciegos del 3-oct (19.84 y 23.91, contrato v2). Con los
+ciclos que quedaban el 4-oct, ningún modelo podía alcanzar al 4º.
 
 ---
 

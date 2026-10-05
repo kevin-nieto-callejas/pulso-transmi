@@ -100,7 +100,7 @@ producción — la inferencia ya no necesita LightGBM ni XGBoost.
 | **Champion base** | `catboost_sin_semanal-20260921T161638Z`, validación 86.76 |
 | **Capa adaptativa** | onda corta (rev 3, #35) → onda larga por estación (sinusoide 1-2 armónicos, peso 0.5-0.7) mezclada con persistencia + ½ tendencia (rev 4, #38/#40) → extrapolación extrema → mezcla champion+perfil |
 | **Entregas** | `relay.yml` en la nube, sin PC (#39), con `git pull` antes de cada ciclo; `inference.yml` de respaldo |
-| **Leaderboard** | Puesto 5 de 32, accuracy acumulada 76.50, cobertura 99.0% (208 resueltos) a las 22:14 UTC del 4/10 |
+| **Leaderboard final** | Puesto 5 de 32, accuracy acumulada 76.96, cobertura 99.1% (215 ciclos) al cierre, 5/10 04:59 UTC |
 | **Tests** | 76, todos pasan |
 
 Historia corta del drift: ~85 en régimen normal. El 1/10 (revisión 3, antes de

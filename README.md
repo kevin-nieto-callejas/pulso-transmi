@@ -17,13 +17,12 @@ está en su **fase final** (API `0.9.0`: drift revisión 4 y contrato de
 observación v2), que cierra el **domingo 4 de octubre de 2026 a las 23:59,
 hora de Bogotá**.
 
-**Estado verificado el 4 de octubre de 2026, 22:14 UTC:** puesto **5 de 32**
-con **76.50** de accuracy acumulada y cobertura de **99.0%** (208 ciclos
-resueltos). Champion base `catboost_sin_semanal` (86.76 de validación) más una
+**Resultado final (cierre 5-oct 04:59 UTC):** puesto **5 de 32** con **76.96**
+de accuracy acumulada y cobertura de **99.1%** (215 ciclos resueltos). Champion base `catboost_sin_semanal` (86.76 de validación) más una
 capa adaptativa para el drift: onda corta (rev 3) y, en la rev 4, una onda larga
 ajustada por estación en cada ciclo (sinusoide de 1-2 armónicos) mezclada con
-persistencia + tendencia. Con ella los ciclos oficiales pasaron de 73-79 a
-83-88. Las entregas corren en la nube con `relay.yml`, que se relanza solo y
+persistencia + tendencia. Con ella, y con una corrección LightGBM del residuo
+(hallazgo #42), los ciclos oficiales pasaron de 73-79 a 83-90. Las entregas corren en la nube con `relay.yml`, que se relanza solo y
 toma el código nuevo antes de cada ciclo, sin depender de ningún PC. 76 tests
 en verde. La fase final está contada en
 [`docs/INFORME_FINAL.md`](docs/INFORME_FINAL.md) y en los hallazgos #37-#41.
