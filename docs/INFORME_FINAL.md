@@ -96,6 +96,7 @@ validaron sobre ventanas distintas, y la de los candidatos incluye el drift.
 | **Accuracy acumulada** | **76.96** (215 ciclos resueltos) |
 | **Cobertura** | 99.1%: 286 entregas oficiales aceptadas; solo faltan los 2 ciclos del 3-oct en que el disparador vivía en el PC apagado (hallazgo #39) |
 | **Top 4** | Isaias Céspedes 81.40 · John Bernal 81.36 · Daniela González 79.86 · Mateo Hoyos 77.95 |
+| **Calificación de desempeño** | **4,80 / 5,00** (publicada por el docente el 6-oct, versión `performance-v1-20261006`): 213/215 entregas, cobertura 99,1%, **88,9% en los últimos seis ciclos** (6/6) |
 
 Evolución en la fase final: puesto 6 con 76.26 al iniciar el 4-oct, y puesto 5
 con 76.96 al cierre (+0.70 en un día).
