@@ -238,7 +238,7 @@ async function load(){
    query("stations","select=station_id,station_name,corridor&order=station_id"),
    query("cycles","select=cycle_id,opens_at,closes_at,status&order=opens_at.desc&limit=1000").then(r=>r.reverse()),
    query("observations","select=count&limit=1")]);
-  state.data={models,metrics,signals,runs,submissions,stations,cycles,obs:Number(obs[0]?.count??0)};
+  state.data={models,metrics,signals,runs:CERRADA?runs.filter(r=>new Date(r.started_at)<CIERRE):runs,submissions,stations,cycles,obs:Number(obs[0]?.count??0)};
   fillStations();setStatus("good","Datos conectados");$("#updated").textContent="Actualizado "+fdate(new Date());renderAll();
   loadPreds().then(p=>{state.preds=p;state.predsErr=null;renderAll()}).catch(e=>{state.preds=[];state.predsErr=e.message;renderAll()});
  }catch(err){
@@ -269,6 +269,10 @@ function series(){
 function windowed(all){return state.window?all.slice(-state.window):all}
 function viewSeries(){const w=windowed(series());if(state.zoom){const a=Math.max(0,state.zoom[0]),b=Math.min(w.length-1,state.zoom[1]);if(b-a>=1)return w.slice(a,b+1)}return w}
 
+/* La competencia cerro el 4-oct 23:59 Bogota. Despues, la API del docente dejo
+   de publicar y el recolector fallaba por eso, no por nuestro sistema. */
+const CIERRE=new Date("2026-10-05T04:59:00Z"),CERRADA=Date.now()>CIERRE;
+const FINAL={puesto:"5 de 32",acc:"76,96",cob:"99,1",nota:"4,80"};
 function renderAll(){
  if(!state.data)return;
  const w=windowed(series()),view=viewSeries();
@@ -288,6 +292,13 @@ function renderOverall(w){
  const champ=d.models.find(m=>m.status==="champion");items.push([champ?"good":"warn",champ?"Champion: "+modelName(champ.version_id):"Sin champion"]);
  const titles={good:"Todo en orden",warn:"Funciona, pero hay puntos por vigilar",bad:"Requiere atención"};
  const texts={good:"El acierto está dentro de lo esperado y los datos llegan con normalidad.",warn:"El sistema opera, pero algún indicador está por debajo de lo esperado. Revisa las alertas más abajo.",bad:"Hay un indicador crítico (acierto bajo o recolector caído)."};
+ if(CERRADA){
+  level="good";titles.good="Competencia cerrada";
+  texts.good="Terminó el 4 de octubre a las 23:59 (Bogotá). Resultado final: puesto "+FINAL.puesto+", accuracy acumulada "+FINAL.acc+", cobertura "+FINAL.cob+" % · nota de desempeño "+FINAL.nota+" / 5,00. Los indicadores muestran la operación hasta el cierre.";
+  items.splice(0,items.length,["good","Puesto final: "+FINAL.puesto],["good","Accuracy acumulada: "+FINAL.acc],["good","Cobertura: "+FINAL.cob+" %"]);
+  if(last)items.push([tone(last.acc)==="good"?"good":tone(last.acc),"Último ciclo: "+fmt(last.acc,1)]);
+  if(champ)items.push(["good","Champion: "+modelName(champ.version_id)]);
+ }
  const el=$("#overall");el.className="status "+level;
  el.innerHTML='<div class="big" aria-hidden="true">'+(level==="good"?"✓":level==="warn"?"!":"×")+'</div><div><h2>'+titles[level]+"</h2><p>"+texts[level]+'</p><div class="pills">'+items.map(i=>'<span class="pill '+i[0]+'"><i></i>'+esc(i[1])+"</span>").join("")+"</div></div>";
 }
@@ -322,7 +333,8 @@ function renderCycles(w){
  const late=nextAt<Date.now(),lateBy=Date.now()-nextAt;
  $("#cycles").innerHTML=
   '<div class="cyc"><h3>Último ciclo evaluado</h3><div class="big">'+fmt(last.acc,1)+' <span class="badge '+tone(last.acc)+'">'+toneWord[tone(last.acc)]+'</span></div><div class="row"><span>Abrió: <b>'+esc(fshort(last.t))+'</b></span>'+(last.bias!=null?'<span>Sesgo: <b>'+(last.bias>0?"+":"")+fmt(last.bias,1)+' %</b></span>':"")+(last.n?'<span>Predicciones: <b>'+last.n+"</b></span>":"")+'<span>Entrega: <b>'+(sub?(sub.accepted?"aceptada":"rechazada"):"sin registro")+"</b></span>"+(sub?'<span>Modelo: <b>'+esc(modelName(sub.model_version_id))+"</b></span>":"")+"</div></div>"+
-  '<div class="cyc"><h3>Próximo ciclo</h3><div class="big">'+(late?"Debería estar por abrir":"Abre "+relFrom(nextAt))+'</div><div class="row"><span>Estimado: <b>'+esc(fshort(nextAt))+'</b></span><span>Cada <b>~'+rel(gap)+'</b></span>'+(late&&lateBy>2*gap?'<span class="badge warn">Retraso de '+rel(lateBy)+"</span>":"")+'<span>Último ciclo abierto: <b>'+esc(fshort(newest.opens_at))+"</b></span></div></div>";
+  (CERRADA?'<div class="cyc"><h3>Estado de la competencia</h3><div class="big">Cerrada</div><div class="row"><span>Cierre: <b>4 de oct 23:59 (Bogotá)</b></span><span>Último ciclo abierto: <b>'+esc(fshort(newest.opens_at))+'</b></span><span>Ciclos entregados: <b>'+d.submissions.filter(s=>s.accepted).length+"</b></span></div></div>":"")+
+  (CERRADA?"":'<div class="cyc"><h3>Próximo ciclo</h3><div class="big">'+(late?"Debería estar por abrir":"Abre "+relFrom(nextAt))+'</div><div class="row"><span>Estimado: <b>'+esc(fshort(nextAt))+'</b></span><span>Cada <b>~'+rel(gap)+'</b></span>'+(late&&lateBy>2*gap?'<span class="badge warn">Retraso de '+rel(lateBy)+"</span>":"")+'<span>Último ciclo abierto: <b>'+esc(fshort(newest.opens_at))+"</b></span></div></div>");
 }
 
 /* ---------- gráficos ---------- */
