@@ -1,0 +1,30 @@
+name: keepalive
+
+# La competencia cerro y los workflows que escribian en Supabase se apagaron
+# (la API del docente ya no publica). El plan gratuito de Supabase pausa un
+# proyecto tras ~7 dias sin actividad, y con el el dashboard de Vercel queda en
+# "Failed to fetch" (paso el 28-oct). Una lectura diaria lo mantiene activo
+# mientras el docente revisa el proyecto. Solo lee; no toca la API del docente.
+# Si falla es porque la base ya esta pausada: hay que restaurarla en Supabase.
+on:
+  schedule:
+    - cron: "23 13 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Leer una fila de Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          CODE=$(curl -s -m 30 -o /dev/null -w "%{http_code}" \
+            "$SUPABASE_URL/rest/v1/model_versions?select=version_id&limit=1" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY")
+          echo "Supabase respondio $CODE"
+          test "$CODE" = "200"
